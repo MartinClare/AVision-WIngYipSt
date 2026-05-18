@@ -1,0 +1,18 @@
+[Unit]
+Description=Edge AI – React UI (nginx reverse proxy)
+After=network-online.target edge-python.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/run/edge-nginx.pid
+ExecStartPre=/usr/sbin/nginx -t -c /opt/edge-service/deploy/edge-nginx.conf
+ExecStart=/usr/sbin/nginx -c /opt/edge-service/deploy/edge-nginx.conf
+ExecReload=/usr/sbin/nginx -s reload -c /opt/edge-service/deploy/edge-nginx.conf
+ExecStop=/usr/sbin/nginx -s quit -c /opt/edge-service/deploy/edge-nginx.conf
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

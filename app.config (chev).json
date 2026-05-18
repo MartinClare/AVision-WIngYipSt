@@ -1,0 +1,69 @@
+{
+  "ui": {
+    "features": {
+      "enableImageUpload": false,
+      "enableVideoUpload": false,
+      "enableWebcam": false,
+      "enableRTSP": true
+    },
+    "defaultInputSource": "rtsp",
+    "defaultAnalysisMode": "gemini",
+    "deepVisionEnabled": true
+  },
+  "rtsp": {
+    "cameras": [
+      {
+        "id": "camera1",
+        "name": "Lobby",
+        "url": "rtsp://fnnas.cccl4s.com:8554/site_b_02",
+        "browserUrl": "http://fnnas.cccl4s.com:8554/site_b_02",
+        "enabled": true
+      },
+      {
+        "id": "camera2",
+        "name": "Front Door",
+        "url": "rtsp://fnnas.cccl4s.com:8554/site_b_08",
+        "browserUrl": "http://fnnas.cccl4s.com:8554/site_b_08",
+        "enabled": true
+      },
+      {
+        "id": "camera3",
+        "name": "Exit 3",
+        "url": "rtsp://fnnas.cccl4s.com:8554/site_b_09",
+        "browserUrl": "http://fnnas.cccl4s.com:8554/site_b_09",
+        "enabled": true
+      },
+      {
+        "id": "camera4",
+        "name": "Camera 4",
+        "url": "rtsp://fnnas.cccl4s.com:8554/site_b_11",
+        "browserUrl": "http://fnnas.cccl4s.com:8554/site_b_11",
+        "enabled": true
+      }
+    ],
+    "fpsLimit": 15,
+    "geminiInterval": 5,
+    "autoStart": true
+  },
+  "debug": {
+    "enabled": false,
+    "showAllFeatures": false
+  },
+  "centralServer": {
+    "enabled": true,
+    "url": "https://cctvcmpchev-git-main-martinclares-projects.vercel.app/api/webhook/edge-report",
+    "apiKey": "axonedge852852",
+    "vercelBypassToken": "DgDk0ncqfYOMOcldWHi1McwSWSiaqTpX"
+  },
+  "network": {
+    "camera_lan": "eth2",
+    "internet": "eth1",
+    "vpn": "eth1",
+    "cmp": "eth1"
+  },
+  "vpn": {
+    "enabled": true,
+    "interface": "mullvad",
+    "provider": "mullvad"
+  }
+}

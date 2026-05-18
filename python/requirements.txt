@@ -1,0 +1,22 @@
+# =============================================================================
+# Python dependencies for the edge FastAPI app
+# =============================================================================
+#
+# Install **PyTorch first** (per machine), then this file. ultralytics is listed
+# here and will not replace torch if a compatible one is already installed.
+#
+# --- NVIDIA DGX / workstation GPU (Linux, CUDA; aarch64 and x86_64) -----------
+#   (matches typical DGX; driver may report CUDA 12.x/13; wheels bundle runtime.)
+#   python -m venv venv
+#   source venv/bin/activate
+#   pip install -U pip
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements.txt
+#
+# --- Rockchip RK35xx (ARM64) edge device  -----------------------------------
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#   (optional RKNN) pip install the matching rknn_toolkit_lite2 wheel from Rockchip
+#   pip install -r requirements-rk3588.txt
+#
+# =============================================================================
+-r requirements-core.txt

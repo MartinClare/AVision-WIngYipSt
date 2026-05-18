@@ -1,0 +1,337 @@
+/**
+ * Vision Verifier — CMP-side image re-analysis.
+ *
+ * When the edge device sends a JPEG frame alongside its textual analysis, this
+ * module sends that image to a vision-capable LLM and asks it to independently
+ * verify whether the description is accurate.  The result is then reconciled
+ * with the text-classifier output so that:
+ *
+ *  • CMP never introduces new issue types from vision alone.
+ *  • Hazards claimed in text but absent from the image have their confidence
+ *    reduced.
+ *  • The final `ClassificationResult` carries a `visionVerified` flag and a
+ *    human-readable `visionSummary` for display in the UI.
+ */
+
+import type { Classification } from "@/lib/llm-classifier";
+import type { IncidentRiskLevel, IncidentType } from "@prisma/client";
+
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+/**
+ * Vision model for image re-analysis and edge description verification.
+ *
+ * Default: qwen/qwen2.5-vl-72b-instruct
+ *   — Multimodal (vision + text), works in HK region.
+ *   — Google Gemini models are region-blocked in HK.
+ *
+ * Override via VISION_MODEL env var.
+ */
+const VISION_MODEL =
+  process.env.VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
+const VISION_FALLBACK_MODEL =
+  process.env.VISION_FALLBACK_MODEL?.trim() || "qwen/qwen2.5-vl-72b-instruct";
+
+/**
+ * Thinking budget for the vision model (Gemini 3 Flash reasoning tokens).
+ * The model reasons internally before producing its JSON answer.
+ * 2048 gives it enough budget to carefully inspect the image region-by-region
+ * before committing to a PPE/fire/machinery verdict.
+ */
+const VISION_THINKING_BUDGET = 2048;
+
+/** Structure returned by the vision LLM. */
+export type VisionVerificationResult = {
+  /** Whether the vision model broadly agrees with the edge description. */
+  descriptionAccuracy: "accurate" | "partially_accurate" | "inaccurate";
+  /** Hazards seen in the image that the edge did not mention. */
+  missedHazards: string[];
+  /** Claims in the edge description that are NOT visible in the image. */
+  incorrectClaims: string[];
+  /** Vision model's own incident-level classifications. */
+  visionClassifications: Classification[];
+  /** One-sentence human-readable verdict. */
+  summary: string;
+};
+
+const INCIDENT_TYPES: IncidentType[] = [
+  "ppe_violation",
+  "machinery_hazard",
+  "smoking",
+  "fire_detected",
+];
+
+const VISION_SYSTEM_PROMPT = `You are an expert construction-site safety auditor with deep expertise in PPE compliance, fire hazards, and machinery safety. You are reviewing a camera image.
+
+An edge AI device has already produced a text description of this scene. Your task is to verify whether the edge's description is visually supported.
+
+Step-by-step approach (reason carefully before answering):
+1. Read the edge summary first.
+2. Only evaluate these 4 issue types: ppe_violation, smoking, fire_detected, machinery_hazard.
+3. Compare the image to the edge summary and decide whether each edge-mentioned issue is visually supported.
+4. NEVER introduce a new issue type that the edge did not mention.
+5. Do NOT use people counts; they are not reliable enough for this task.
+6. For PPE only: if the people are too small, too distant, blurred, partially blocked, inside machinery cabs, or the view is a wide overview, treat PPE as NOT VERIFIABLE — do NOT confirm a PPE violation AND do NOT mention it. Stay completely silent about PPE when uncertain; never say PPE "cannot be assessed" or "is limited" — simply omit PPE from your response.
+7. For machinery_hazard, confirm it ONLY when a person is visibly too close to moving/working heavy machinery or clearly inside its immediate strike/swing path. Machinery present by itself is NOT a machinery_hazard.
+
+Risk rules:
+- ppe_violation    → "high" when visually supported
+- smoking          → "high" when visually supported
+- fire_detected    → "critical" when active fire/flame is visible
+- machinery_hazard → "high" when machinery is too close to a person
+
+**CRITICAL PPE VERIFICATION RULE:**
+- If edge claims PPE violation (missing hardhat/vest) but you see workers WITH proper PPE → set detected: false
+- If edge claims PPE violation but view is unclear, distant, or cab-obstructed → set detected: false
+- Only set detected: true for ppe_violation when you CAN clearly see missing hardhat or vest
+
+Return STRICT JSON only — no markdown fences, no commentary outside the JSON:
+{
+  "descriptionAccuracy": "accurate|partially_accurate|inaccurate",
+  "missedHazards": [],
+  "incorrectClaims": ["describe each edge claim NOT visible in the image; if a PPE claim cannot be verified due to distance/angle/cab, omit it from incorrectClaims rather than flagging it as incorrect"],
+  "visionClassifications": [
+    { "type": "<one of the 4 types>", "detected": true/false, "riskLevel": "low|high|critical", "confidence": 0.0-1.0, "reasoning": "one concise line citing visual evidence" }
+  ],
+  "summary": "one sentence overall verdict"
+}`;
+
+function stripFences(text: string): string {
+  let t = text.trim();
+  if (t.startsWith("```json")) t = t.slice(7);
+  else if (t.startsWith("```")) t = t.slice(3);
+  if (t.endsWith("```")) t = t.slice(0, -3);
+  return t.trim();
+}
+
+function parseVisionJson(text: string): VisionVerificationResult | null {
+  const candidates = [stripFences(text)];
+  const first = candidates[0];
+  const a = first.indexOf("{");
+  const b = first.lastIndexOf("}");
+  if (a >= 0 && b > a) candidates.push(first.slice(a, b + 1));
+  candidates.push(...candidates.map((c) => c.replace(/,\s*([}\]])/g, "$1")));
+
+  for (const c of candidates) {
+    try {
+      const parsed = JSON.parse(c) as VisionVerificationResult;
+      if (parsed.visionClassifications) return parsed;
+    } catch {
+      // continue
+    }
+  }
+  return null;
+}
+
+function buildEdgeSummaryText(analysis: {
+  overallDescription: string;
+  constructionSafety: { summary: string; issues: string[] };
+  fireSafety: { summary: string; issues: string[] };
+  propertySecurity: { summary: string; issues: string[] };
+  peopleCount?: number | null;
+  missingHardhats?: number | null;
+  missingVests?: number | null;
+}): string {
+  const lines: string[] = [
+    `Overall: ${analysis.overallDescription}`,
+    `PPE flags from edge: missing hardhats: ${analysis.missingHardhats ?? 0}, missing vests: ${analysis.missingVests ?? 0}`,
+    `Construction safety: ${analysis.constructionSafety.summary}`,
+    ...(analysis.constructionSafety.issues.length ? [`  Issues: ${analysis.constructionSafety.issues.join("; ")}`] : []),
+    `Fire safety: ${analysis.fireSafety.summary}`,
+    ...(analysis.fireSafety.issues.length ? [`  Issues: ${analysis.fireSafety.issues.join("; ")}`] : []),
+    `Property security: ${analysis.propertySecurity.summary}`,
+    ...(analysis.propertySecurity.issues.length ? [`  Issues: ${analysis.propertySecurity.issues.join("; ")}`] : []),
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Send the image to a vision LLM and ask it to verify the edge's description.
+ * Returns null if no API key is configured or the image is too large.
+ */
+export async function verifyWithVision(
+  imageBytes: Buffer,
+  mimeType: string,
+  analysis: Parameters<typeof buildEdgeSummaryText>[0]
+): Promise<VisionVerificationResult | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    console.warn("[VisionVerifier] OPENROUTER_API_KEY not set — skipping vision verification");
+    return null;
+  }
+
+  // Guard: skip if the image is implausibly large (> 10 MB would inflate the base64 payload)
+  if (imageBytes.length > 10 * 1024 * 1024) {
+    console.warn("[VisionVerifier] Image too large for inline base64 — skipping");
+    return null;
+  }
+
+  const base64Image = imageBytes.toString("base64");
+  const dataUrl = `data:${mimeType};base64,${base64Image}`;
+  const edgeSummary = buildEdgeSummaryText(analysis);
+
+  const callModel = async (model: string) => {
+    let response: Response;
+    try {
+      response = await fetch(OPENROUTER_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://axon-vision-cmp.vercel.app",
+          "X-Title": "Axon CMP Vision Verifier",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: VISION_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Edge device analysis to verify:\n\n${edgeSummary}\n\nExamine the image carefully, then verify whether the description is accurate and provide your own independent safety classification.`,
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: dataUrl },
+                },
+              ],
+            },
+          ],
+          temperature: 0.1,
+          max_tokens: 800,
+          thinking: { type: "enabled", budget_tokens: VISION_THINKING_BUDGET },
+        }),
+      });
+    } catch (err) {
+      throw Object.assign(err instanceof Error ? err : new Error(String(err)), { status: 0 });
+    }
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "unknown");
+      throw Object.assign(new Error(errText), { status: response.status });
+    }
+
+    const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    return result.choices?.[0]?.message?.content ?? "";
+  };
+
+  let text = "";
+  let usedModel = VISION_MODEL;
+  try {
+    text = await callModel(VISION_MODEL);
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    const msg = err instanceof Error ? err.message.toLowerCase() : "";
+    const isBlocked = status === 403 || msg.includes("banned") || msg.includes("not available in your region");
+    if (!isBlocked) {
+      console.error("[VisionVerifier] Network/API error calling vision API:", err);
+      return null;
+    }
+    console.warn(`[VisionVerifier] Primary model blocked; retrying with ${VISION_FALLBACK_MODEL}`);
+    try {
+      text = await callModel(VISION_FALLBACK_MODEL);
+      usedModel = VISION_FALLBACK_MODEL;
+    } catch (fallbackErr) {
+      console.error("[VisionVerifier] Fallback model also failed:", fallbackErr);
+      return null;
+    }
+  }
+
+  if (!text) return null;
+
+  const parsed = parseVisionJson(text);
+  if (!parsed) {
+    console.error("[VisionVerifier] Failed to parse vision JSON. Raw:", text.slice(0, 400));
+    return null;
+  }
+
+  // Sanitise: keep only known incident types
+  parsed.visionClassifications = (parsed.visionClassifications ?? []).filter(
+    (c) => INCIDENT_TYPES.includes(c.type)
+  );
+
+  // Attach which model performed the verification so it can be displayed in the UI
+  (parsed as Record<string, unknown>).model = usedModel;
+
+  return parsed;
+}
+
+const RISK_ORDER: Record<string, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+
+function higher(a: IncidentRiskLevel, b: IncidentRiskLevel): IncidentRiskLevel {
+  return (RISK_ORDER[a] ?? 0) >= (RISK_ORDER[b] ?? 0) ? a : b;
+}
+
+/**
+ * Merge text-classifier results with vision-classifier results.
+ *
+ * The vision model looks directly at the image and is the final arbiter.
+ *
+ * Strategy per incident type:
+ *  - Both detected         → confirmed incident (higher risk, combined reasoning).
+ *  - Vision only detected  → ignored (CMP must not raise new issues the edge did not mention).
+ *  - Text detected, vision says NO → BLOCKED. Vision overrules — no incident emitted.
+ *  - Neither detected      → not detected.
+ */
+export function reconcileClassifications(
+  textResults: Classification[],
+  visionResults: Classification[]
+): Classification[] {
+  const textMap = new Map(textResults.map((c) => [c.type, c]));
+  const visionMap = new Map(visionResults.map((c) => [c.type, c]));
+
+  const allTypes = new Set<IncidentType>([
+    ...textMap.keys(),
+    ...visionMap.keys(),
+  ]);
+
+  const reconciled: Classification[] = [];
+
+  for (const type of allTypes) {
+    const t = textMap.get(type);
+    const v = visionMap.get(type);
+
+    if (t?.detected && v?.detected) {
+      // Both agree — confirmed incident
+      reconciled.push({
+        type,
+        detected: true,
+        riskLevel: higher(t.riskLevel, v.riskLevel),
+        confidence: Math.min(1.0, (t.confidence + v.confidence) / 2 + 0.1),
+        reasoning: `Text and vision both confirmed. ${t.reasoning} | Vision: ${v.reasoning}`,
+      });
+    } else if (!t?.detected && v?.detected) {
+      // Vision-only — ignored, CMP must not invent issues the edge did not report
+      reconciled.push({
+        type,
+        detected: false,
+        riskLevel: "low",
+        confidence: Math.min(0.75, v.confidence),
+        reasoning: `Vision-only detection ignored (edge did not report it): ${v.reasoning}`,
+      });
+    } else if (t?.detected && !v?.detected) {
+      // Text claimed detection but vision looked at the image and disagreed.
+      // Vision is the final authority — block the incident entirely.
+      reconciled.push({
+        type,
+        detected: false,
+        riskLevel: "low",
+        confidence: v?.confidence ?? 0.9,
+        reasoning: `CMP vision reviewed the image and found no evidence — incident blocked. Vision: ${v?.reasoning ?? "not confirmed visually"}`,
+      });
+    } else {
+      // Neither detected
+      reconciled.push({
+        type,
+        detected: false,
+        riskLevel: "low",
+        confidence: t?.confidence ?? v?.confidence ?? 0.9,
+        reasoning: t?.reasoning ?? v?.reasoning ?? "Not detected",
+      });
+    }
+  }
+
+  return reconciled;
+}
