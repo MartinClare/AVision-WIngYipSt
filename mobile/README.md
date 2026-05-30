@@ -1,36 +1,117 @@
 # CMP Mobile (Expo)
 
-Native shell for AXON Vision CMP: push alerts (per-user risk threshold), incident list/detail, summary KPIs, and edge device status.
+Native **standalone** app for AXON Vision CMP: push alerts, incident list/detail, summary KPIs, and edge device status.
 
-## Configure API URL
+This is **not** an Expo Go demo. Build a real installable APK/IPA with EAS.
 
-- **Dev:** set `expo.extra.cmpApiUrl` in [app.json](./app.json), or export `EXPO_PUBLIC_CMP_API_URL` when starting Metro (must be reachable from the device or emulator, e.g. LAN IP of the machine running CMP, not `localhost` on a physical phone).
-- **Production builds:** use EAS secrets or `app.config.js` to inject the CMP base URL (no trailing slash).
+## Build a real Android APK (Mac)
+
+### 1. Install tools
+
+```bash
+npm install -g eas-cli
+cd mobile
+npm install
+eas login
+```
+
+### 2. Set your CMP server URL
+
+Phones cannot reach `localhost`. Use your CMP **public URL** or **LAN IP**:
+
+```bash
+cp .env.example .env
+# Edit .env — example for same Wi‑Fi testing:
+# EXPO_PUBLIC_CMP_API_URL=http://wingyip.axoncase.com:3002
+```
+
+Also replace `REPLACE_WITH_YOUR_CMP_URL` in `eas.json` (both `preview` and `production` profiles), **or** set an EAS env var:
+
+```bash
+eas env:create --name EXPO_PUBLIC_CMP_API_URL --value "http://wingyip.axoncase.com:3002" --environment production --visibility plaintext
+eas env:create --name EXPO_PUBLIC_CMP_API_URL --value "http://wingyip.axoncase.com:3002" --environment preview --visibility plaintext
+```
+
+### 3. Build the APK (cloud — no Android Studio required)
+
+```bash
+npm run build:apk
+```
+
+EAS compiles a **standalone release APK** (`com.axoncase.cmp`). When finished, download the `.apk` from the link in the terminal or [expo.dev](https://expo.dev) → your project → Builds.
+
+Install on your Android phone (enable “Install unknown apps” for your browser/files app).
+
+### 4. Enable push on CMP
+
+On the CMP server:
+
+```bash
+cd CCTVCMP-linux
+npx prisma migrate deploy
+```
+
+Add to `.env`:
+
+```env
+EXPO_ACCESS_TOKEN=your_expo_access_token
+```
+
+Restart CMP. In **Settings → Mobile**, confirm **Push configured**.
+
+### 5. Test on the phone
+
+1. Open **AXON Vision CMP** (installed APK — not Expo Go)
+2. Sign in
+3. **Settings → Register this device for push**
+4. **Settings → Send test notification**
+5. Trigger a real incident above your risk threshold
+
+---
+
+## Alternative: local APK with Android Studio (Mac)
+
+If you prefer building on your Mac instead of EAS cloud:
+
+```bash
+cd mobile
+cp .env.example .env   # set EXPO_PUBLIC_CMP_API_URL
+npm install
+npx expo prebuild --platform android --clean
+cd android
+./gradlew assembleRelease
+```
+
+APK output: `android/app/build/outputs/apk/release/app-release.apk`
+
+You need Android Studio + SDK installed, and a signing keystore for release builds. EAS is simpler for most teams.
+
+---
 
 ## CMP server
 
-1. Apply Prisma migrations (includes `push_devices`, `user_alert_preferences`, `mobile_push_logs`).
-2. Set **`EXPO_ACCESS_TOKEN`** on the CMP host ([Expo access token](https://expo.dev/accounts/[account]/settings/access-tokens) with push permissions).
-3. Optional: **`MOBILE_PUSH_ENABLED=false`** to turn off incident push fan-out.
+1. Apply the mobile push migration (`npx prisma migrate deploy` in `CCTVCMP-linux`).
+2. Set **`EXPO_ACCESS_TOKEN`** on the CMP host.
+3. Optional: **`MOBILE_PUSH_ENABLED=false`** to disable incident push fan-out.
 
-## Push notifications
+In CMP **Settings → Mobile**, configure per-user alert thresholds. Users register devices from the app **Settings** tab.
 
-- After login, the app registers an Expo push token with `POST /api/mobile/devices`.
-- **Minimum risk**, **project filter**, and **critical types only** are stored in `UserAlertPreference` and are **editable only by CMP administrators** (CMP Settings → Mobile app, or an admin signed into the mobile app). Other users see their current settings as read-only and can still register the device for push.
-- **Test:** Settings → “Send test notification” (requires `EXPO_ACCESS_TOKEN`).
+---
 
-For production push, create an EAS project and set **`extra.eas.projectId`** in `app.json` (or run `eas init`).
-
-## Internal distribution (EAS)
-
-- **Android APK:** `eas build --profile preview --platform android`
-- **iOS:** same profile uses internal distribution (Ad Hoc / enterprise / TestFlight per your Apple setup). See [EAS Build](https://docs.expo.dev/build/introduction/).
-
-## Scripts
+## Dev (JS only — not for push testing on Android)
 
 ```bash
-npm install
-npm start              # Expo dev server
+npm start
 ```
 
-Admin-only **Mobile app** tab in CMP Settings lists users, device counts, and **Clear push tokens** per user.
+Expo Go is fine for UI dev on iOS. **Android push requires the standalone APK above.**
+
+---
+
+## App identity
+
+| Field | Value |
+|-------|-------|
+| App name | AXON Vision CMP |
+| Android package | `com.axoncase.cmp` |
+| EAS project | `4d418b37-ba61-4887-84e2-c489fecb5d17` |

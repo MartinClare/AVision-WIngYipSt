@@ -1,0 +1,103 @@
+# Local PPE-UI reverse proxy (generated from template by install_local_boot_services.sh)
+# Serves the React build on port 3000 and proxies API + go2rtc so remote browsers
+# only need this one port (Tailscale / LAN).
+
+worker_processes auto;
+pid __REPO_ROOT__/deploy/edge-nginx.pid;
+error_log __REPO_ROOT__/deploy/nginx-error.log warn;
+
+events {
+    worker_connections 256;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    sendfile    on;
+    tcp_nopush  on;
+    keepalive_timeout 65;
+
+    access_log __REPO_ROOT__/deploy/nginx-access.log;
+
+    upstream cloud_backend {
+        server 127.0.0.1:3001;
+    }
+
+    upstream python_backend {
+        server 127.0.0.1:8000;
+    }
+
+    server {
+        listen 3000;
+        server_name _;
+
+        client_max_body_size 200M;
+
+        root __REPO_ROOT__/ppe-ui/build;
+        index index.html;
+
+        # go2rtc WebRTC signalling (browser must reach this via same host:3000)
+        location /go2rtc/ {
+            proxy_pass http://127.0.0.1:1984/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 86400s;
+        }
+
+        # Edge-cloud API (config, snapshots, deep vision, analyze)
+        location /api/ {
+            proxy_pass http://cloud_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 300s;
+            proxy_buffering off;
+        }
+
+        # Legacy Python backend (optional)
+        location /ws/ {
+            proxy_pass http://python_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_read_timeout 86400s;
+            proxy_buffering off;
+        }
+
+        location /detect/ {
+            proxy_pass http://python_backend;
+            proxy_set_header Host $host;
+            proxy_read_timeout 300s;
+        }
+
+        location /videos/ {
+            proxy_pass http://python_backend;
+            proxy_set_header Host $host;
+            proxy_read_timeout 300s;
+        }
+
+        location /alarms/ {
+            proxy_pass http://python_backend;
+            proxy_set_header Host $host;
+        }
+
+        location = /health {
+            proxy_pass http://cloud_backend/api/health;
+            proxy_set_header Host $host;
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        location = /index.html {
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+        }
+    }
+}

@@ -1,0 +1,26 @@
+# HTTPS on port 3000 (router-forwarded public port).
+
+{
+	email admin@axoncase.com
+}
+
+https://wingyip.axoncase.com:3000 {
+	tls internal
+	encode gzip
+
+	handle /go2rtc* {
+		reverse_proxy 127.0.0.1:1984
+	}
+
+	handle /api* {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	handle /cmp* {
+		reverse_proxy 127.0.0.1:3002
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3010
+	}
+}

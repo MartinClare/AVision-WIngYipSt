@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/auth";
+import { dispatchMobilePush } from "@/lib/mobile-push/dispatch";
+import { dispatchNotifications } from "@/lib/notifications/dispatcher";
 import { prisma } from "@/lib/prisma";
 import { createIncidentSchema } from "@/lib/validations/incidents";
 
@@ -43,6 +45,13 @@ export async function POST(request: NextRequest) {
       logs: true,
     },
   });
+
+  dispatchNotifications(incident).catch((err) =>
+    console.error("[Incidents] Notification dispatch error:", err)
+  );
+  dispatchMobilePush(incident).catch((err) =>
+    console.error("[Incidents] Mobile push dispatch error:", err)
+  );
 
   return NextResponse.json({ data: incident }, { status: 201 });
 }

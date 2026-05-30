@@ -662,13 +662,42 @@ function MobileSettingsTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [pushConfigured, setPushConfigured] = useState(false);
+  const [users, setUsers] = useState<
+    Array<{
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      deviceCount: number;
+      preference: {
+        minRiskLevel: string;
+        criticalTypesOnly: boolean;
+        alertsEnabled: boolean;
+        projectIds: string[];
+      };
+    }>
+  >([]);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
+
+  async function loadUsers() {
+    const res = await fetch("/api/settings/mobile-users");
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setPushConfigured(Boolean(data.pushConfigured));
+      if (Array.isArray(data.users)) setUsers(data.users);
+    }
+  }
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/settings/mobile-config");
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && typeof data.mobilePublicBaseUrl === "string") {
+        const [configRes] = await Promise.all([
+          fetch("/api/settings/mobile-config"),
+          loadUsers(),
+        ]);
+        const data = await configRes.json().catch(() => ({}));
+        if (configRes.ok && typeof data.mobilePublicBaseUrl === "string") {
           setValue(data.mobilePublicBaseUrl);
         }
       } finally {
@@ -698,32 +727,161 @@ function MobileSettingsTab() {
     }
   }
 
+  async function patchUserPreference(userId: string, body: Record<string, unknown>) {
+    setBusyUserId(userId);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/settings/mobile-users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(typeof data?.message === "string" ? data.message : "Update failed");
+        return;
+      }
+      await loadUsers();
+      setMessage("User alert settings updated");
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
+  async function clearUserDevices(userId: string) {
+    setBusyUserId(userId);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/settings/mobile-users/${userId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(typeof data?.message === "string" ? data.message : "Clear failed");
+        return;
+      }
+      await loadUsers();
+      setMessage(`Cleared ${data.cleared ?? 0} push device(s)`);
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Mobile deployment</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Set the public CMP base URL used in mobile incident image links. Example: https://cmp.example.com
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Public CMP base URL</label>
-          <Input
-            placeholder="https://cmp.example.com"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            disabled={loading || saving}
-          />
-          <p className="text-xs text-muted-foreground">
-            Leave empty in local development to use the current request origin automatically.
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Mobile deployment</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Set the public CMP base URL used in mobile incident image links. Example: https://cmp.example.com
           </p>
-        </div>
-        <Button onClick={save} disabled={loading || saving}>
-          {saving ? "Saving..." : "Save"}
-        </Button>
-        {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
-      </CardContent>
-    </Card>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Public CMP base URL</label>
+            <Input
+              placeholder="https://cmp.example.com"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={loading || saving}
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave empty in local development to use the current request origin automatically.
+            </p>
+          </div>
+          <Button onClick={save} disabled={loading || saving}>
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Mobile push alerts</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Configure per-user alert thresholds and manage registered devices. Requires{" "}
+            <code className="text-xs">EXPO_ACCESS_TOKEN</code> on the CMP server.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Badge variant={pushConfigured ? "default" : "outline"}>
+              {pushConfigured ? "Push configured" : "Push not configured"}
+            </Badge>
+            {!pushConfigured ? (
+              <span className="text-xs text-muted-foreground">
+                Set EXPO_ACCESS_TOKEN and restart CMP to enable incident push.
+              </span>
+            ) : null}
+          </div>
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Devices</TableHead>
+                <TableHead>Min risk</TableHead>
+                <TableHead>Alerts</TableHead>
+                <TableHead>Critical only</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell>
+                    <div className="font-medium">{entry.name}</div>
+                    <div className="text-xs text-muted-foreground">{entry.email}</div>
+                  </TableCell>
+                  <TableCell>{entry.deviceCount}</TableCell>
+                  <TableCell>
+                    <select
+                      className="rounded border bg-background px-2 py-1 text-sm"
+                      value={entry.preference.minRiskLevel}
+                      disabled={busyUserId === entry.id}
+                      onChange={(e) => void patchUserPreference(entry.id, { minRiskLevel: e.target.value })}
+                    >
+                      {["low", "medium", "high", "critical"].map((risk) => (
+                        <option key={risk} value={risk}>
+                          {risk}
+                        </option>
+                      ))}
+                    </select>
+                  </TableCell>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      checked={entry.preference.alertsEnabled}
+                      disabled={busyUserId === entry.id}
+                      onChange={(e) => void patchUserPreference(entry.id, { alertsEnabled: e.target.checked })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      checked={entry.preference.criticalTypesOnly}
+                      disabled={busyUserId === entry.id}
+                      onChange={(e) =>
+                        void patchUserPreference(entry.id, { criticalTypesOnly: e.target.checked })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busyUserId === entry.id || entry.deviceCount === 0}
+                      onClick={() => void clearUserDevices(entry.id)}
+                    >
+                      Clear push tokens
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+    </div>
   );
 }

@@ -47,9 +47,23 @@ export default async function DashboardPage() {
   ]);
 
   const now = Date.now();
-  const edgeDevices = cameras
+  type CameraWithLatestReport = (typeof cameras)[number];
+  type IncidentRow = (typeof incidents)[number];
+  type MetricRow = (typeof metrics)[number];
+  type EdgeDevice = {
+    id: string;
+    name: string;
+    edgeCameraId: string | null;
+    streamUrl: string | null;
+    status: string;
+    lastReportAt: string | null;
+    isOnline: boolean;
+    latestRiskLevel: string | null;
+    latestDescription: string | null;
+  };
+  const edgeDevices: EdgeDevice[] = cameras
     .filter(shouldDisplayEdgeCamera)
-    .map((cam) => ({
+    .map((cam: CameraWithLatestReport) => ({
       id: cam.id,
       name: cam.name,
       edgeCameraId: cam.edgeCameraId,
@@ -64,14 +78,14 @@ export default async function DashboardPage() {
       latestDescription: cam.edgeReports[0]?.overallDescription ?? null,
     }));
 
-  const edgeOnline = edgeDevices.filter((d) => d.isOnline).length;
-  const openIncidents = incidents.filter((i) => i.status === "open").length;
+  const edgeOnline = edgeDevices.filter((d: EdgeDevice) => d.isOnline).length;
+  const openIncidents = incidents.filter((i: IncidentRow) => i.status === "open").length;
   const highCriticalRisk = incidents.filter(
-    (i) => i.riskLevel === "high" || i.riskLevel === "critical"
+    (i: IncidentRow) => i.riskLevel === "high" || i.riskLevel === "critical"
   ).length;
   const avgResponseTime =
     metrics.length > 0
-      ? metrics.reduce((acc, m) => acc + m.avgResponseTime, 0) / metrics.length
+      ? metrics.reduce((acc: number, m: MetricRow) => acc + m.avgResponseTime, 0) / metrics.length
       : 0;
 
   const categoryMeta: Record<string, { icon: string }> = {};
@@ -82,10 +96,10 @@ export default async function DashboardPage() {
     const typesInCategory = Object.entries(CATEGORY_MAP)
       .filter(([, meta]) => meta.category === category)
       .map(([type]) => type);
-    const categoryIncidents = incidents.filter((i) => typesInCategory.includes(i.type));
-    const openCount = categoryIncidents.filter((i) => i.status === "open").length;
+    const categoryIncidents = incidents.filter((i: IncidentRow) => typesInCategory.includes(i.type));
+    const openCount = categoryIncidents.filter((i: IncidentRow) => i.status === "open").length;
     const latest = categoryIncidents.sort(
-      (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime()
+      (a: IncidentRow, b: IncidentRow) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime()
     )[0];
     const categoryKey = category as "PPE" | "Construction" | "Fire" | "Security";
     return {
@@ -112,7 +126,7 @@ export default async function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <RiskBreakdown categories={riskCategories} />
         <AlertFeed
-          incidents={recentIncidents.map((i) => ({
+          incidents={recentIncidents.map((i: (typeof recentIncidents)[number]) => ({
             id: i.id,
             type: i.type,
             riskLevel: i.riskLevel,

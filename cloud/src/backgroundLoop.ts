@@ -164,6 +164,10 @@ let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
 let heartbeatIndex = 0;
 let activeAnalysisCount = 0;
+let analysisBoostEndsAtMs: number | null = null;
+
+const STARTUP_ANALYSIS_BOOST_INTERVAL_MS = 20_000;
+const STARTUP_ANALYSIS_BOOST_WINDOW_MS = 60 * 60 * 1000;
 
 // Stability mode: leave larger gaps so the local vision server can answer
 // health checks and avoid being permanently saturated by analysis traffic.
@@ -413,24 +417,33 @@ function getEffectiveInterval(cfg: Record<string, unknown>): number {
   const defaultMs = Math.max(1, Number(rtsp?.geminiInterval) || 5) * 1000;
 
   const schedule = rtsp?.schedule as Record<string, unknown> | undefined;
-  if (!schedule?.enabled) return defaultMs;
+  let configuredIntervalMs = defaultMs;
+  if (schedule?.enabled) {
+    const parseHHMM = (t: unknown): number => {
+      const parts = String(t ?? '').split(':');
+      return (parseInt(parts[0] ?? '0', 10) || 0) * 60 + (parseInt(parts[1] ?? '0', 10) || 0);
+    };
 
-  const parseHHMM = (t: unknown): number => {
-    const parts = String(t ?? '').split(':');
-    return (parseInt(parts[0] ?? '0', 10) || 0) * 60 + (parseInt(parts[1] ?? '0', 10) || 0);
-  };
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const dayStartMin = parseHHMM(schedule.dayStart ?? '07:00');
+    const dayEndMin   = parseHHMM(schedule.dayEnd   ?? '19:00');
 
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const dayStartMin = parseHHMM(schedule.dayStart ?? '07:00');
-  const dayEndMin   = parseHHMM(schedule.dayEnd   ?? '19:00');
+    const isDay = nowMin >= dayStartMin && nowMin < dayEndMin;
+    const intervalSec = isDay
+      ? Math.max(1, Number(schedule.dayInterval)   || 60)
+      : Math.max(1, Number(schedule.nightInterval) || 600);
 
-  const isDay = nowMin >= dayStartMin && nowMin < dayEndMin;
-  const intervalSec = isDay
-    ? Math.max(1, Number(schedule.dayInterval)   || 60)
-    : Math.max(1, Number(schedule.nightInterval) || 600);
+    configuredIntervalMs = intervalSec * 1000;
+  }
 
-  return intervalSec * 1000;
+  // Startup boost: for the first hour after edge-cloud starts, force 20s analysis
+  // cadence so the freshly cleared system quickly repopulates reports/incidents.
+  if (analysisBoostEndsAtMs && Date.now() < analysisBoostEndsAtMs) {
+    return STARTUP_ANALYSIS_BOOST_INTERVAL_MS;
+  }
+
+  return configuredIntervalMs;
 }
 
 async function analysisIteration(): Promise<void> {
@@ -562,6 +575,7 @@ function buildGo2RTCStreams(cfg: Record<string, unknown>): Record<string, string
 export function startBackgroundLoops(): void {
   if (running) return;
   running = true;
+  analysisBoostEndsAtMs = Date.now() + STARTUP_ANALYSIS_BOOST_WINDOW_MS;
   console.log('[backgroundLoop] Starting analysis loop + heartbeat loop + snapshot loop');
 
   const cfg = loadConfig();

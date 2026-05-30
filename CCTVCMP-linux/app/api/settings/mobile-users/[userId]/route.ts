@@ -11,22 +11,21 @@ import { prisma } from "@/lib/prisma";
 
 const RISKS: IncidentRiskLevel[] = ["low", "medium", "high", "critical"];
 
-export async function GET(request: NextRequest) {
-  const user = await getCurrentUserFromRequest(request);
-  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
-  return NextResponse.json(await buildPreferenceResponse(user.id, user.role));
-}
-
-export async function PATCH(request: NextRequest) {
+export async function PATCH(
+  request: NextRequest,
+  context: { params: { userId: string } }
+) {
   const user = await getCurrentUserFromRequest(request);
   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   if (user.role !== Role.admin) {
-    return NextResponse.json(
-      { message: "Only administrators can change mobile alert settings." },
-      { status: 403 }
-    );
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
   }
+
+  const target = await prisma.user.findUnique({
+    where: { id: context.params.userId },
+    select: { id: true, role: true },
+  });
+  if (!target) return NextResponse.json({ message: "User not found" }, { status: 404 });
 
   let body: {
     minRiskLevel?: string;
@@ -40,7 +39,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
   }
 
-  const existing = await getOrCreateAlertPreference(user.id, user.role);
+  const existing = await getOrCreateAlertPreference(target.id, target.role);
   const updateData: {
     minRiskLevel?: IncidentRiskLevel;
     criticalTypesOnly?: boolean;
@@ -63,12 +62,27 @@ export async function PATCH(request: NextRequest) {
     updateData.projectIds = validProjects.map((project) => project.id);
   }
 
-  const updated = await prisma.userAlertPreference.update({
+  await prisma.userAlertPreference.update({
     where: { id: existing.id },
     data: updateData,
   });
 
-  const preference = serializePreference(updated);
-  const projectScope = await resolveProjectScope(preference.projectIds);
-  return NextResponse.json({ preference, projectScope });
+  return NextResponse.json(await buildPreferenceResponse(target.id, target.role));
+}
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: { userId: string } }
+) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  if (user.role !== Role.admin) {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  }
+
+  const result = await prisma.pushDevice.deleteMany({
+    where: { userId: context.params.userId },
+  });
+
+  return NextResponse.json({ cleared: result.count });
 }

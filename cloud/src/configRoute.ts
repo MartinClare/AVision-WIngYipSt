@@ -163,11 +163,38 @@ function getServiceStatus(units: string[]): string {
   return states[0] || 'unknown';
 }
 
+// ── Public URL helpers (remote / Tailscale access) ───────────────────
+
+/** Client-visible origin (respects nginx X-Forwarded-* headers). */
+function clientPublicOrigin(req: Request): string {
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+  const host = (req.get('x-forwarded-host') || req.get('host') || req.hostname || 'localhost')
+    .split(',')[0]
+    .trim();
+  return `${proto}://${host}`;
+}
+
+/**
+ * go2rtc base URL reachable from the browser.
+ * When PPE-UI is on :3000, nginx proxies /go2rtc/ → localhost:1984.
+ */
+function go2rtcApiBaseForClient(req: Request): string {
+  const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+  const origin = clientPublicOrigin(req);
+  const uiPortMatch = host.match(/:(\d+)$/);
+  const uiPort = uiPortMatch ? uiPortMatch[1] : (host.includes(':') ? '' : '80');
+  const proxiedUiPorts = new Set(['3000', '80', '443', '']);
+  if (proxiedUiPorts.has(uiPort)) {
+    return `${origin}/go2rtc`;
+  }
+  return `http://${req.hostname}:${GO2RTC_PORT}`;
+}
+
 // ── Routes ───────────────────────────────────────────────────────────
 
 const router = Router();
 
-router.get('/config', (_req: Request, res: Response) => {
+router.get('/config', (req: Request, res: Response) => {
   try {
     const config = loadConfig();
     const sanitised = sanitiseForFrontend(config);
@@ -175,7 +202,7 @@ router.get('/config', (_req: Request, res: Response) => {
     (sanitised as Record<string, unknown>)._go2rtc = {
       available: isGo2RTCAvailable(),
       port: GO2RTC_PORT,
-      apiBase: `http://${_req.hostname}:${GO2RTC_PORT}`,
+      apiBase: go2rtcApiBaseForClient(req),
     };
     res.json(sanitised);
   } catch (err) {

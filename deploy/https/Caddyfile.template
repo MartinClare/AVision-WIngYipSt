@@ -1,0 +1,29 @@
+# HTTPS reverse proxy for PPE-UI (edge) and CMP.
+# Replace placeholders before use (install-https.sh does this).
+#
+# Requires:
+#   - DNS A records: EDGE_DOMAIN and CMP_DOMAIN -> your public IP
+#   - Router forwards TCP 80 and 443 to this host
+#   - avision-ui listening on 127.0.0.1:3000
+#   - avision-cmp listening on 127.0.0.1:3002
+
+{
+	email __LETSENCRYPT_EMAIL__
+}
+
+# Edge PPE-UI (+ proxied /api and /go2rtc from CRA dev server)
+__EDGE_DOMAIN__ {
+	encode gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+# CMP (Next.js)
+__CMP_DOMAIN__ {
+	encode gzip
+	reverse_proxy 127.0.0.1:3002
+}
+
+# Optional: redirect bare IP HTTP to edge hostname
+# :80 {
+# 	redir https://__EDGE_DOMAIN__{uri} permanent
+# }

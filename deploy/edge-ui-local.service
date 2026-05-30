@@ -1,14 +1,15 @@
 [Unit]
-Description=Edge Linux UI (serve static build)
-After=network-online.target
-Wants=network-online.target
+Description=Edge Linux UI (nginx — static + API/go2rtc proxy on port 3000)
+After=network-online.target edge-cloud-local.service
+Wants=network-online.target edge-cloud-local.service
 
 [Service]
 Type=simple
 User=iris
 Group=iris
-WorkingDirectory=/home/iris/Documents/development/edge-linux/ppe-ui
-ExecStart=/usr/bin/npx serve -s /home/iris/Documents/development/edge-linux/ppe-ui/build -l 3000
+Environment=EDGE_REPO=/home/iris/Documents/development/edge-linux
+ExecStartPre=/usr/sbin/nginx -t -c ${EDGE_REPO}/deploy/edge-nginx-local.conf
+ExecStart=/usr/sbin/nginx -c ${EDGE_REPO}/deploy/edge-nginx-local.conf -g 'daemon off;'
 Restart=on-failure
 RestartSec=5
 

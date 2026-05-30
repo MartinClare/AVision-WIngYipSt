@@ -161,8 +161,8 @@ ssh admin@<device-name>.<tailnet-name>.ts.net
 
 Web access over Tailscale:
 
-- UI: `http://<tailscale-ip>:3000`
-- Backend API: `http://<tailscale-ip>:8000`
+- UI (and API via nginx proxy): `http://<tailscale-ip>:3000`
+- Edge-cloud API direct (optional): `http://<tailscale-ip>:3001`
 
 This works across reboots and 5G IP changes as long as both devices are online and logged into Tailscale.
 

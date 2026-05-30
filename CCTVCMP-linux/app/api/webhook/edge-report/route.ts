@@ -137,9 +137,19 @@ async function parseRequestBody(request: NextRequest): Promise<
     }
 
     const imageField = form.get("image");
-    if (imageField instanceof File) {
-      const mimeType = imageField.type || "image/jpeg";
-      const bytes = Buffer.from(await imageField.arrayBuffer());
+    const fileCtorAvailable = typeof File !== "undefined";
+    const isFileLike =
+      !!imageField &&
+      typeof imageField === "object" &&
+      "arrayBuffer" in imageField &&
+      typeof (imageField as { arrayBuffer?: unknown }).arrayBuffer === "function";
+
+    // Node 18 doesn't always expose the global File constructor in route handlers.
+    // Accept any file-like FormData value instead of relying on `instanceof File`.
+    if ((fileCtorAvailable && imageField instanceof File) || isFileLike) {
+      const typedImage = imageField as { type?: string; arrayBuffer: () => Promise<ArrayBuffer> };
+      const mimeType = typedImage.type || "image/jpeg";
+      const bytes = Buffer.from(await typedImage.arrayBuffer());
       return { ok: true, payload, image: { bytes, mimeType } };
     }
 

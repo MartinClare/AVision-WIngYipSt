@@ -2,6 +2,12 @@
 /go2rtc
 /go2rtc.yaml
 
+# Generated local nginx (from edge-nginx-local.conf.template)
+deploy/edge-nginx-local.conf
+deploy/edge-nginx.pid
+deploy/nginx-access.log
+deploy/nginx-error.log
+
 # Python
 venv/
 .venv/

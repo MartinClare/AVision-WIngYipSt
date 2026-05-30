@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { ClassificationResult } from "@/lib/llm-classifier";
 import type { IncidentRiskLevel, IncidentStatus } from "@prisma/client";
 import { dispatchNotifications } from "@/lib/notifications/dispatcher";
+import { dispatchMobilePush } from "@/lib/mobile-push/dispatch";
 
 const RISK_ORDER: Record<IncidentRiskLevel, number> = {
   low: 0,
@@ -184,6 +185,9 @@ export async function evaluateAlarms(
 
       dispatchNotifications(incident).catch((err) =>
         console.error("[AlarmEngine] Notification dispatch error:", err)
+      );
+      dispatchMobilePush(incident).catch((err) =>
+        console.error("[AlarmEngine] Mobile push dispatch error:", err)
       );
     }
   }

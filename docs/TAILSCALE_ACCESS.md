@@ -31,6 +31,8 @@ Once on the same tailnet they can use:
 | **Web UI** | `http://100.75.44.93:3000` or `http://admin.<tailnet>.ts.net:3000` |
 | **SSH**    | `ssh admin@100.75.44.93` or `ssh admin@admin.<tailnet>.ts.net` |
 
+Port **3000** serves the React UI and proxies `/api/` (edge-cloud) and `/go2rtc/` (live video). You do **not** need to open ports 3001 or 1984 for remote browsers when using nginx (`edge-ui` / `edge-ui-local`).
+
 (Replace `<tailnet>` with your tailnet name, e.g. `yourdomain.com`.)
 
 ## 4. Toggle Tailscale from the app
