@@ -1,24 +1,31 @@
 import Constants from "expo-constants";
 
-/** CMP base URL (no trailing slash). Override in app.json `expo.extra.cmpApiUrl` or EXPO_PUBLIC_CMP_API_URL. */
 export const CMP_API_URL: string =
   (Constants.expoConfig?.extra?.cmpApiUrl as string | undefined)?.replace(/\/$/, "") ||
   process.env.EXPO_PUBLIC_CMP_API_URL?.replace(/\/$/, "") ||
   "http://localhost:3002";
 
-
-export function resolveCmpAssetUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const assetUrl = new URL(url);
-    const apiUrl = new URL(CMP_API_URL);
-    if (assetUrl.hostname === "localhost" || assetUrl.hostname === "127.0.0.1") {
-      assetUrl.protocol = apiUrl.protocol;
-      assetUrl.hostname = apiUrl.hostname;
-      assetUrl.port = apiUrl.port;
+export function resolveCmpAssetUrl(pathOrUrl: string | null | undefined): string | null {
+  if (!pathOrUrl) return null;
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    try {
+      const url = new URL(pathOrUrl);
+      if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+        const base = new URL(CMP_API_URL);
+        url.protocol = base.protocol;
+        url.host = base.host;
+        return url.toString();
+      }
+      return pathOrUrl;
+    } catch {
+      return pathOrUrl;
     }
-    return assetUrl.toString();
-  } catch {
-    return url.startsWith("/") ? `${CMP_API_URL}${url}` : url;
   }
+  const base = CMP_API_URL.replace(/\/$/, "");
+  const path = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${base}${path}`;
+}
+
+export function localeHeader(locale: string): string {
+  return locale === "zh-Hant" ? "zh" : "en";
 }

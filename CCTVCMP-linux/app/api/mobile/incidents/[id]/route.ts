@@ -4,68 +4,99 @@ import { prisma } from "@/lib/prisma";
 import { updateIncidentSchema } from "@/lib/validations/incidents";
 import { mapStatusToAction, nextStatus } from "@/lib/workflows/incident";
 import { resolveMobilePublicBaseUrl } from "@/lib/runtime-config";
+import { resolveMobileLocale, serializeEdgeReportForMobile } from "@/lib/mobile-serialize";
+
+const incidentSelect = {
+  id: true,
+  type: true,
+  riskLevel: true,
+  status: true,
+  recordOnly: true,
+  reasoning: true,
+  notes: true,
+  detectedAt: true,
+  acknowledgedAt: true,
+  resolvedAt: true,
+  dismissedAt: true,
+  camera: { select: { name: true } },
+  zone: { select: { name: true } },
+  project: { select: { name: true } },
+  assignee: { select: { name: true, email: true } },
+  edgeReport: {
+    select: {
+      id: true,
+      overallRiskLevel: true,
+      overallDescription: true,
+      peopleCount: true,
+      missingHardhats: true,
+      missingVests: true,
+      receivedAt: true,
+      rawJson: true,
+      translationsJson: true,
+      classificationJson: true,
+      visionVerificationJson: true,
+      constructionSafety: true,
+      fireSafety: true,
+      propertySecurity: true,
+      cmpRiskLevel: true,
+      keepalive: true,
+      messageType: true,
+      eventImageIncluded: true,
+    },
+  },
+  notificationLogs: {
+    select: {
+      id: true,
+      status: true,
+      sentAt: true,
+      channel: { select: { name: true, type: true } },
+    },
+    orderBy: { sentAt: "desc" as const },
+  },
+};
+
+function serializeIncident(
+  incident: NonNullable<Awaited<ReturnType<typeof loadIncident>>>,
+  publicBaseUrl: string,
+  locale: ReturnType<typeof resolveMobileLocale>
+) {
+  return {
+    ...incident,
+    detectedAt: incident.detectedAt.toISOString(),
+    acknowledgedAt: incident.acknowledgedAt?.toISOString() ?? null,
+    resolvedAt: incident.resolvedAt?.toISOString() ?? null,
+    dismissedAt: incident.dismissedAt?.toISOString() ?? null,
+    notificationLogs: incident.notificationLogs.map((log) => ({
+      ...log,
+      sentAt: log.sentAt.toISOString(),
+    })),
+    edgeReport: incident.edgeReport
+      ? serializeEdgeReportForMobile(incident.edgeReport, publicBaseUrl, locale)
+      : null,
+  };
+}
+
+async function loadIncident(id: string) {
+  return prisma.incident.findFirst({
+    where: {
+      id,
+      OR: [{ notes: null }, { notes: { not: "__test__" } }],
+    },
+    select: incidentSelect,
+  });
+}
 
 export async function GET(request: NextRequest, context: { params: { id: string } }) {
   const user = await getCurrentUserFromRequest(request);
   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 
-  const incident = await prisma.incident.findFirst({
-    where: {
-      id: context.params.id,
-      OR: [{ notes: null }, { notes: { not: "__test__" } }],
-    },
-    select: {
-      id: true,
-      type: true,
-      riskLevel: true,
-      status: true,
-      recordOnly: true,
-      reasoning: true,
-      notes: true,
-      detectedAt: true,
-      acknowledgedAt: true,
-      resolvedAt: true,
-      dismissedAt: true,
-      camera: { select: { name: true } },
-      zone: { select: { name: true } },
-      project: { select: { name: true } },
-      assignee: { select: { name: true, email: true } },
-      edgeReport: {
-        select: {
-          id: true,
-          overallRiskLevel: true,
-          overallDescription: true,
-          peopleCount: true,
-          missingHardhats: true,
-          missingVests: true,
-          receivedAt: true,
-        },
-      },
-      notificationLogs: {
-        select: {
-          id: true,
-          status: true,
-          sentAt: true,
-          channel: { select: { name: true, type: true } },
-        },
-        orderBy: { sentAt: "desc" },
-      },
-    },
-  });
-
+  const locale = resolveMobileLocale(request);
+  const incident = await loadIncident(context.params.id);
   if (!incident) return NextResponse.json({ message: "Not found" }, { status: 404 });
 
   const publicBaseUrl = await resolveMobilePublicBaseUrl(request.url);
   return NextResponse.json({
-    incident: {
-      ...incident,
-      edgeReport: incident.edgeReport
-        ? {
-            ...incident.edgeReport,
-            imageUrl: `${publicBaseUrl}/api/edge-reports/${incident.edgeReport.id}/image`,
-          }
-        : null,
-    },
+    incident: serializeIncident(incident, publicBaseUrl, locale),
   });
 }
 
@@ -105,61 +136,20 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
       ? "note_added"
       : "updated";
 
-  const incident = await prisma.incident.update({
+  await prisma.incident.update({
     where: { id: current.id },
     data: {
       ...updateData,
       logs: { create: { userId: user.id, action: logAction } },
     },
-    select: {
-      id: true,
-      type: true,
-      riskLevel: true,
-      status: true,
-      recordOnly: true,
-      reasoning: true,
-      notes: true,
-      detectedAt: true,
-      acknowledgedAt: true,
-      resolvedAt: true,
-      dismissedAt: true,
-      camera: { select: { name: true } },
-      zone: { select: { name: true } },
-      project: { select: { name: true } },
-      assignee: { select: { name: true, email: true } },
-      edgeReport: {
-        select: {
-          id: true,
-          overallRiskLevel: true,
-          overallDescription: true,
-          peopleCount: true,
-          missingHardhats: true,
-          missingVests: true,
-          receivedAt: true,
-        },
-      },
-      notificationLogs: {
-        select: {
-          id: true,
-          status: true,
-          sentAt: true,
-          channel: { select: { name: true, type: true } },
-        },
-        orderBy: { sentAt: "desc" },
-      },
-    },
   });
+
+  const locale = resolveMobileLocale(request);
+  const incident = await loadIncident(current.id);
+  if (!incident) return NextResponse.json({ message: "Not found" }, { status: 404 });
 
   const publicBaseUrl = await resolveMobilePublicBaseUrl(request.url);
   return NextResponse.json({
-    incident: {
-      ...incident,
-      edgeReport: incident.edgeReport
-        ? {
-            ...incident.edgeReport,
-            imageUrl: `${publicBaseUrl}/api/edge-reports/${incident.edgeReport.id}/image`,
-          }
-        : null,
-    },
+    incident: serializeIncident(incident, publicBaseUrl, locale),
   });
 }

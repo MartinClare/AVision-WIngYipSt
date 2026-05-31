@@ -1,126 +1,98 @@
-import { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  useColorScheme,
-  View,
-} from 'react-native';
-import { Redirect, useRouter } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
-import { useLocale } from '@/context/LocaleContext';
+import { useState } from "react";
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { Redirect } from "expo-router";
+import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/context/AuthContext";
+import { useLocale } from "@/context/LocaleContext";
+import { colors, radius, spacing, typography } from "@/lib/theme";
 
 export default function LoginScreen() {
-  const { login, ready, user } = useAuth();
+  const { user, login } = useAuth();
   const { t } = useLocale();
-  const router = useRouter();
-  const scheme = useColorScheme();
-  const dark = scheme === 'dark';
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  async function onSubmit() {
-    setError(null);
+  if (user) return <Redirect href="/(tabs)" />;
+
+  const onSubmit = async () => {
     setLoading(true);
-    const res = await login(email.trim(), password);
+    setError(null);
+    const res = await login(email, password);
     setLoading(false);
-    if (res.ok) router.replace('/(tabs)');
-    else setError(res.message);
-  }
-
-  const c = dark ? colors.dark : colors.light;
-
-  if (ready && user) {
-    return <Redirect href="/(tabs)" />;
-  }
+    if (!res.ok) setError(res.message || t("login.error"));
+  };
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={[styles.container, { backgroundColor: c.bg }]}
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <Text style={[styles.title, { color: c.text }]}>{t('login.title')}</Text>
-      <Text style={[styles.sub, { color: c.muted }]}>{t('login.subtitle')}</Text>
-      <TextInput
-        style={[styles.input, { borderColor: c.border, backgroundColor: c.inputBg, color: c.text }]}
-        placeholder={t('login.email')}
-        placeholderTextColor={c.placeholder}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        autoCorrect={false}
-        value={email}
-        onChangeText={setEmail}
-        editable={!loading}
-      />
-      <TextInput
-        style={[styles.input, { borderColor: c.border, backgroundColor: c.inputBg, color: c.text }]}
-        placeholder={t('login.password')}
-        placeholderTextColor={c.placeholder}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        editable={!loading}
-      />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={() => void onSubmit()}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>{t('login.action')}</Text>
-        )}
-      </Pressable>
+      <View style={styles.card}>
+        <Text style={styles.title}>{t("login.title")}</Text>
+        <Text style={styles.subtitle}>{t("login.subtitle")}</Text>
+        <TextInput
+          style={styles.input}
+          placeholder={t("login.email")}
+          placeholderTextColor={colors.mutedForeground}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder={t("login.password")}
+          placeholderTextColor={colors.mutedForeground}
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+        />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <Button title={t("login.action")} onPress={onSubmit} loading={loading} />
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
-const colors = {
-  light: {
-    bg: '#ffffff',
-    text: '#18181b',
-    muted: '#71717a',
-    placeholder: '#a1a1aa',
-    border: '#d4d4d8',
-    inputBg: '#ffffff',
-  },
-  dark: {
-    bg: '#09090b',
-    text: '#fafafa',
-    muted: '#a1a1aa',
-    placeholder: '#71717a',
-    border: '#3f3f46',
-    inputBg: '#18181b',
-  },
-};
-
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, justifyContent: 'center', maxWidth: 400, alignSelf: 'center', width: '100%' },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
-  sub: { fontSize: 14, marginBottom: 24 },
-  input: {
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    justifyContent: "center",
+    padding: spacing.xl,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontSize: 16,
+    borderColor: colors.border,
+    padding: spacing.xl,
+    gap: spacing.md,
   },
-  button: {
-    backgroundColor: '#2563eb',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
+  title: {
+    color: colors.foreground,
+    fontSize: typography.xxl,
+    fontWeight: "700",
   },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  error: { color: '#f87171', marginBottom: 8, fontSize: 14 },
+  subtitle: {
+    color: colors.muted,
+    fontSize: typography.sm,
+    marginBottom: spacing.sm,
+  },
+  input: {
+    backgroundColor: colors.secondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    color: colors.foreground,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: typography.base,
+  },
+  error: {
+    color: colors.destructive,
+    fontSize: typography.sm,
+  },
 });

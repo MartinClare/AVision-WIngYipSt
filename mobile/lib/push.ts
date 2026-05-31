@@ -13,11 +13,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-/**
- * Push notifications are not supported in Expo Go on Android.
- * They require a standalone/development-client build with FCM configured.
- * On iOS Expo Go they work fine. On a built APK/IPA they work on both platforms.
- */
 function isExpoGo(): boolean {
   return Constants.appOwnership === "expo";
 }
@@ -27,10 +22,6 @@ export async function registerPushTokenWithCmp(): Promise<string | null> {
   if (!Device.isDevice) return null;
 
   if (Platform.OS === "android" && isExpoGo()) {
-    console.info(
-      "[push] Skipped: Android Expo Go does not support push notifications. " +
-        "Build a standalone APK (eas build --profile preview --platform android) to enable push."
-    );
     return null;
   }
 
@@ -51,19 +42,23 @@ export async function registerPushTokenWithCmp(): Promise<string | null> {
       projectId ? { projectId } : undefined
     );
     const expoToken = tokenResult.data;
-
     const platform = Platform.OS === "ios" ? "ios" : "android";
     const res = await apiFetch<{ device: { id: string } }>("/api/mobile/devices", {
       method: "POST",
       body: JSON.stringify({ token: expoToken, platform }),
     });
-    if (!res.ok) {
-      console.warn("[push] Register device failed:", res.error.message);
-      return null;
-    }
+    if (!res.ok) return null;
     return expoToken;
-  } catch (err) {
-    console.info("[push] Could not get push token:", (err as Error)?.message ?? err);
+  } catch {
     return null;
   }
+}
+
+export async function sendTestPush(): Promise<{ ok: true; sent: number } | { ok: false; message: string }> {
+  const res = await apiFetch<{ ok: true; sent: number }>("/api/mobile/push/test", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) return { ok: false, message: res.error.message };
+  return { ok: true, sent: res.data.sent };
 }

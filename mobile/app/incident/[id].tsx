@@ -1,303 +1,214 @@
-import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { apiFetch } from '@/lib/api';
-import { useTheme } from '@/lib/theme';
-import { resolveCmpAssetUrl } from '@/constants/Config';
-import { useAuth } from '@/context/AuthContext';
-import { useLocale } from '@/context/LocaleContext';
-import { AuthImage } from '@/components/AuthImage';
+import { useState } from "react";
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { BoundingBoxCanvas } from "@/components/BoundingBoxCanvas";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { Row } from "@/components/ui/Row";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import { useAuth } from "@/context/AuthContext";
+import { useLocale } from "@/context/LocaleContext";
+import { incidentTypeLabel, formatDateTime } from "@/lib/i18n";
+import { useIncident, usePatchIncident } from "@/lib/queries";
+import { colors, radius, spacing, typography } from "@/lib/theme";
 
-type IncidentDetail = {
-  id: string;
-  type: string;
-  riskLevel: string;
-  status: string;
-  recordOnly: boolean;
-  reasoning: string | null;
-  notes: string | null;
-  detectedAt: string;
-  acknowledgedAt: string | null;
-  resolvedAt: string | null;
-  dismissedAt: string | null;
-  camera: { name: string };
-  zone: { name: string };
-  project: { name: string };
-  assignee: { name: string; email: string } | null;
-  edgeReport: {
-    id: string;
-    overallRiskLevel: string;
-    overallDescription: string | null;
-    peopleCount: number | null;
-    missingHardhats: number | null;
-    missingVests: number | null;
-    receivedAt: string;
-    imageUrl: string;
-  } | null;
-  notificationLogs: Array<{
-    id: string;
-    status: string;
-    sentAt: string;
-    channel: { name: string; type: string };
-  }>;
-};
-
-function riskStyle(level: string, c: ReturnType<typeof useTheme>) {
-  switch (level) {
-    case 'critical':
-      return { backgroundColor: c.offlineBg, color: c.offlineText };
-    case 'high':
-      return { backgroundColor: '#7c2d12', color: '#fdba74' };
-    case 'medium':
-      return { backgroundColor: '#78350f', color: '#fcd34d' };
-    default:
-      return { backgroundColor: c.surface, color: c.textSub };
-  }
-}
-
-function Row({
-  label,
-  value,
-  c,
-}: {
-  label: string;
-  value: string;
-  c: ReturnType<typeof useTheme>;
-}) {
+function SafetyBlock({ title, data }: { title: string; data: unknown }) {
+  if (!data || typeof data !== "object") return null;
+  const obj = data as { summary?: string; issues?: string[]; recommendations?: string[] };
   return (
-    <View style={[styles.detailRow, { borderBottomColor: c.border }]}>
-      <Text style={[styles.detailLabel, { color: c.textMuted }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: c.text }]}>{value}</Text>
-    </View>
+    <Card>
+      <SectionHeader title={title} />
+      {obj.summary ? <Text style={styles.body}>{obj.summary}</Text> : null}
+      {(obj.issues ?? []).map((issue, i) => (
+        <Text key={`i-${i}`} style={styles.listItem}>• {issue}</Text>
+      ))}
+      {(obj.recommendations ?? []).map((rec, i) => (
+        <Text key={`r-${i}`} style={styles.listItem}>→ {rec}</Text>
+      ))}
+    </Card>
   );
 }
 
 export default function IncidentDetailScreen() {
-  const c = useTheme();
-  const { token } = useAuth();
-  const { t } = useLocale();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [incident, setIncident] = useState<IncidentDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const { t, locale } = useLocale();
+  const { token } = useAuth();
+  const router = useRouter();
+  const { data, isLoading, isError, error, refetch } = useIncident(id);
+  const patch = usePatchIncident(id);
+  const [notes, setNotes] = useState("");
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    const res = await apiFetch<{ incident: IncidentDetail }>(`/api/mobile/incidents/${id}`);
-    if (res.ok) setIncident(res.data.incident);
-    setLoading(false);
-  }, [id]);
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      void load();
-    }, [load])
-  );
-
-  async function patchStatus(status: string) {
-    if (!id) return;
-    setActionBusy(status);
-    const res = await apiFetch(`/api/mobile/incidents/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    });
-    setActionBusy(null);
-    if (res.ok) void load();
-  }
-
-  if (loading || !incident) {
+  if (isError) {
     return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <ActivityIndicator size="large" />
-      </View>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <ErrorState message={error?.message ?? "Error"} onRetry={() => void refetch()} />
+      </ScrollView>
     );
   }
 
-  const imageUri = resolveCmpAssetUrl(incident.edgeReport?.imageUrl);
+  if (isLoading || !data) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Text style={styles.loading}>{t("common.loading")}</Text>
+      </ScrollView>
+    );
+  }
+
+  const incident = data;
+  const edge = incident.edgeReport;
+  const classifications = (edge?.classificationJson as { classifications?: Array<{ type: string; detected: boolean; riskLevel: string; confidence: number; reasoning: string }> } | null)?.classifications ?? [];
+  const vision = edge?.visionVerificationJson as { summary?: string; missedHazards?: string[]; incorrectClaims?: string[] } | null;
+
+  const changeStatus = async (status: string) => {
+    try {
+      await patch.mutateAsync({ status });
+    } catch (e) {
+      Alert.alert((e as Error).message);
+    }
+  };
+
+  const saveNotes = async () => {
+    try {
+      await patch.mutateAsync({ notes });
+      Alert.alert(t("settings.saved"));
+    } catch (e) {
+      Alert.alert((e as Error).message);
+    }
+  };
 
   return (
-    <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container}>
-      <View style={styles.headerTop}>
-        <Text style={[styles.title, { color: c.text }]}>{incident.type.replace(/_/g, ' ')}</Text>
-        <View style={styles.badges}>
-          <Text style={[styles.badge, riskStyle(incident.riskLevel, c)]}>{t(`common.risk.${incident.riskLevel}`)}</Text>
-          <Text style={[styles.badge, { backgroundColor: c.surface, color: c.textSub }]}>
-            {t(`common.status.${incident.status}`)}
-          </Text>
-          {incident.recordOnly ? (
-            <Text style={[styles.badge, { backgroundColor: c.surface, color: c.textSub }]}>{t('incidents.record')}</Text>
-          ) : null}
-        </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>{incidentTypeLabel(locale, incident.type)}</Text>
+        <Badge value={incident.riskLevel} kind="risk" />
       </View>
-      <Text style={[styles.meta, { color: c.textSub }]}>
-        {incident.project.name} · {incident.zone.name} · {incident.camera.name}
-      </Text>
-      <Text style={[styles.date, { color: c.textMuted }]}>{new Date(incident.detectedAt).toLocaleString()}</Text>
+      <Badge value={incident.status} kind="status" />
 
-      <View style={[styles.card, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-        <Text style={[styles.sectionTitle, { color: c.text }]}>{t('incidents.details')}</Text>
-        <Row label={t('incidents.assignedTo')} value={incident.assignee?.name ?? t('incidents.unassigned')} c={c} />
-        <Row label={t('incidents.detectedAt')} value={new Date(incident.detectedAt).toLocaleString()} c={c} />
-        {incident.acknowledgedAt ? (
-          <Row label={t('incidents.acknowledgedAt')} value={new Date(incident.acknowledgedAt).toLocaleString()} c={c} />
-        ) : null}
-        {incident.resolvedAt ? (
-          <Row label={t('incidents.resolvedAt')} value={new Date(incident.resolvedAt).toLocaleString()} c={c} />
-        ) : null}
-        {incident.dismissedAt ? (
-          <Row label={t('incidents.dismissedAt')} value={new Date(incident.dismissedAt).toLocaleString()} c={c} />
-        ) : null}
-      </View>
-
-      {imageUri ? (
-        <View style={[styles.card, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>{t('incidents.evidence')}</Text>
-          <AuthImage
-            uri={imageUri}
-            token={token}
-            style={[styles.image, { backgroundColor: c.surface }]}
-            resizeMode="cover"
-          />
-          {incident.edgeReport?.receivedAt ? (
-            <Text style={[styles.noteText, { color: c.textMuted }]}>
-              {t('incidents.captured', { value: new Date(incident.edgeReport.receivedAt).toLocaleString() })}
-            </Text>
-          ) : null}
-          {incident.edgeReport?.overallRiskLevel ? (
-            <Text style={[styles.noteText, { color: c.textMuted }]}>{t('incidents.edgeRisk', { value: incident.edgeReport.overallRiskLevel })}</Text>
-          ) : null}
-          {incident.edgeReport?.peopleCount != null ? (
-            <Text style={[styles.noteText, { color: c.textMuted }]}>
-              People: {incident.edgeReport.peopleCount} · Missing hardhats: {incident.edgeReport.missingHardhats ?? 0}
-              {' · '}Missing vests: {incident.edgeReport.missingVests ?? 0}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
+      <Card>
+        <SectionHeader title={t("incidents.details")} />
+        <Row label={t("incidents.detectedAt")} value={formatDateTime(incident.detectedAt)} />
+        <Row label={t("incidents.assignedTo")} value={incident.assignee?.name ?? t("incidents.unassigned")} />
+        <Row label={t("incidents.acknowledgedAt")} value={formatDateTime(incident.acknowledgedAt)} />
+        <Row label={t("incidents.resolvedAt")} value={formatDateTime(incident.resolvedAt)} />
+      </Card>
 
       {incident.reasoning ? (
-        <View style={[styles.card, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>{t('incidents.reasoning')}</Text>
-          <Text style={[styles.body, { color: c.textSub }]}>{incident.reasoning}</Text>
-        </View>
+        <Card>
+          <SectionHeader title={t("incidents.reasoning")} />
+          <Text style={styles.body}>{incident.reasoning}</Text>
+        </Card>
       ) : null}
 
-      {incident.edgeReport?.overallDescription ? (
-        <View style={[styles.card, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>{t('incidents.edgeSummary')}</Text>
-          <Text style={[styles.body, { color: c.textSub }]}>{incident.edgeReport.overallDescription}</Text>
-        </View>
+      {edge?.imageUrl ? (
+        <Card>
+          <SectionHeader title={t("incidents.evidence")} />
+          <BoundingBoxCanvas
+            imageUrl={edge.imageUrl}
+            token={token}
+            detections={edge.detections ?? []}
+            maxHeight={320}
+          />
+          <Button
+            title={t("incidents.viewEdgeReport")}
+            variant="ghost"
+            onPress={() => router.push(`/incident/edge-report/${edge.id}`)}
+          />
+        </Card>
       ) : null}
 
-      {incident.notes ? (
-        <View style={[styles.card, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>{t('incidents.notesTitle')}</Text>
-          <Text style={[styles.body, { color: c.textSub }]}>{incident.notes}</Text>
-        </View>
-      ) : null}
-
-      {incident.notificationLogs.length > 0 ? (
-        <View style={[styles.card, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>{t('incidents.notifications')}</Text>
-          {incident.notificationLogs.map((log) => (
-            <View key={log.id} style={[styles.detailRow, { borderBottomColor: c.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.detailValue, { color: c.text }]}>
-                  {log.channel.name} ({log.channel.type})
-                </Text>
-                <Text style={[styles.detailLabel, { color: c.textMuted }]}>
-                  {new Date(log.sentAt).toLocaleString()}
-                </Text>
-              </View>
-              <Text style={[styles.badge, { backgroundColor: c.surface, color: c.textSub }]}>
-                {log.status}
-              </Text>
+      {classifications.length > 0 ? (
+        <Card>
+          <SectionHeader title={t("incidents.classification")} />
+          {classifications.filter((c) => c.detected).map((c) => (
+            <View key={c.type} style={styles.classRow}>
+              <Text style={styles.body}>{c.type.replace(/_/g, " ")}</Text>
+              <Badge value={c.riskLevel} kind="risk" />
+              <Text style={styles.sub}>{c.reasoning}</Text>
             </View>
           ))}
-        </View>
+        </Card>
       ) : null}
 
-      <Text style={[styles.section, { color: c.text }]}>{t('incidents.actions')}</Text>
-      {incident.status === 'open' ? (
-        <Pressable
-          style={styles.btn}
-          onPress={() => void patchStatus('acknowledged')}
-          disabled={actionBusy !== null}
-        >
-          <Text style={styles.btnText}>{actionBusy === 'acknowledged' ? '…' : t('incidents.acknowledge')}</Text>
-        </Pressable>
+      {vision ? (
+        <Card>
+          <SectionHeader title={t("incidents.vision")} />
+          {vision.summary ? <Text style={styles.body}>{vision.summary}</Text> : null}
+          {(vision.missedHazards ?? []).map((h, i) => (
+            <Text key={i} style={styles.listItem}>Missed: {h}</Text>
+          ))}
+          {(vision.incorrectClaims ?? []).map((h, i) => (
+            <Text key={i} style={styles.listItem}>Not confirmed: {h}</Text>
+          ))}
+        </Card>
       ) : null}
-      {incident.status === 'open' || incident.status === 'acknowledged' ? (
-        <>
-          <Pressable
-            style={styles.btn}
-            onPress={() => void patchStatus('resolved')}
-            disabled={actionBusy !== null}
-          >
-            <Text style={styles.btnText}>{actionBusy === 'resolved' ? '…' : t('incidents.resolve')}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.btnOutline, { borderColor: c.border }]}
-            onPress={() => void patchStatus('dismissed')}
-            disabled={actionBusy !== null}
-          >
-            <Text style={[styles.btnOutlineText, { color: c.textSub }]}>
-              {actionBusy === 'dismissed' ? '…' : t('incidents.dismiss')}
+
+      <SafetyBlock title="Construction" data={edge?.constructionSafety} />
+      <SafetyBlock title="Fire" data={edge?.fireSafety} />
+      <SafetyBlock title="Property" data={edge?.propertySecurity} />
+
+      <Card>
+        <SectionHeader title={t("incidents.notes")} />
+        <TextInput
+          style={styles.notesInput}
+          multiline
+          value={notes || incident.notes || ""}
+          onChangeText={setNotes}
+          placeholderTextColor={colors.mutedForeground}
+        />
+        <Button title={t("incidents.saveNotes")} onPress={() => void saveNotes()} loading={patch.isPending} />
+      </Card>
+
+      {(incident.notificationLogs ?? []).length > 0 ? (
+        <Card>
+          <SectionHeader title={t("incidents.notifications")} />
+          {(incident.notificationLogs ?? []).map((log) => (
+            <Text key={log.id} style={styles.sub}>
+              {log.channel.name} ({log.channel.type}) · {log.status} · {formatDateTime(log.sentAt)}
             </Text>
-          </Pressable>
-        </>
+          ))}
+        </Card>
       ) : null}
+
+      <View style={styles.actions}>
+        {incident.status === "open" ? (
+          <>
+            <Button title={t("incidents.acknowledge")} onPress={() => void changeStatus("acknowledged")} />
+            <Button title={t("incidents.resolve")} variant="secondary" onPress={() => void changeStatus("resolved")} />
+            <Button title={t("incidents.dismiss")} variant="ghost" onPress={() => void changeStatus("dismissed")} />
+          </>
+        ) : null}
+        {incident.status === "acknowledged" ? (
+          <>
+            <Button title={t("incidents.resolve")} onPress={() => void changeStatus("resolved")} />
+            <Button title={t("incidents.dismiss")} variant="ghost" onPress={() => void changeStatus("dismissed")} />
+          </>
+        ) : null}
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  container: { padding: 16, paddingBottom: 40 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  badges: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: '45%' },
-  badge: { fontSize: 11, fontWeight: '600', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  title: { fontSize: 22, fontWeight: '700', textTransform: 'capitalize' },
-  meta: { fontSize: 14, marginTop: 6 },
-  date: { fontSize: 12, marginTop: 4, marginBottom: 12 },
-  card: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 14 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  detailLabel: { fontSize: 12, flex: 1 },
-  detailValue: { fontSize: 13, flex: 1.5, textAlign: 'right' },
-  image: { width: '100%', height: 220, borderRadius: 12 },
-  section: { fontSize: 16, fontWeight: '700', marginTop: 16, marginBottom: 6 },
-  body: { fontSize: 15, lineHeight: 22 },
-  noteText: { fontSize: 12, marginTop: 8 },
-  btn: {
-    backgroundColor: '#2563eb',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  btnText: { color: '#fff', fontWeight: '600' },
-  btnOutline: {
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
+  headerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  title: { color: colors.foreground, fontSize: typography.xl, fontWeight: "700", flex: 1 },
+  body: { color: colors.cardForeground, fontSize: typography.sm, lineHeight: 22 },
+  sub: { color: colors.muted, fontSize: typography.sm, marginTop: spacing.xs },
+  listItem: { color: colors.muted, fontSize: typography.sm, marginTop: spacing.xs },
+  classRow: { gap: spacing.xs, marginBottom: spacing.md },
+  notesInput: {
+    minHeight: 100,
     borderWidth: 1,
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 8,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.md,
+    color: colors.foreground,
+    backgroundColor: colors.secondary,
+    marginBottom: spacing.md,
   },
-  btnOutlineText: { fontWeight: '600' },
+  actions: { gap: spacing.sm },
+  loading: { color: colors.muted, textAlign: "center", marginTop: spacing.xxl },
 });

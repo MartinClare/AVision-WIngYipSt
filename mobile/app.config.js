@@ -9,16 +9,16 @@ const cmpApiUrl =
 module.exports = {
   name: "AXON Vision CMP",
   slug: "mobile",
-  version: "1.0.0",
+  version: "2.0.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "axoncmp",
-  userInterfaceStyle: "automatic",
+  userInterfaceStyle: "dark",
   newArchEnabled: true,
   splash: {
     image: "./assets/images/splash-icon.png",
     resizeMode: "contain",
-    backgroundColor: "#ffffff",
+    backgroundColor: "#0f172a",
   },
   ios: {
     supportsTablet: true,
@@ -32,10 +32,10 @@ module.exports = {
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/images/adaptive-icon.png",
-      backgroundColor: "#ffffff",
+      backgroundColor: "#0f172a",
     },
     package: "com.axoncase.cmp",
-    versionCode: 1,
+    versionCode: 2,
     usesCleartextTraffic: true,
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
@@ -52,7 +52,7 @@ module.exports = {
       "expo-notifications",
       {
         icon: "./assets/images/icon.png",
-        color: "#2563eb",
+        color: "#0369a1",
       },
     ],
   ],

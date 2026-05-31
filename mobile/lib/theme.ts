@@ -1,41 +1,61 @@
-import { useColorScheme } from 'react-native';
+export const colors = {
+  background: "#0f172a",
+  card: "#020617",
+  cardForeground: "#e2e8f0",
+  foreground: "#f8fafc",
+  primary: "#0369a1",
+  primaryForeground: "#f8fafc",
+  accent: "#0ea5e9",
+  destructive: "#ef4444",
+  border: "#1e293b",
+  muted: "#94a3b8",
+  mutedForeground: "#64748b",
+  secondary: "#1e293b",
+  online: "#22c55e",
+  offline: "#ef4444",
+  warning: "#eab308",
+} as const;
 
-export const palette = {
-  light: {
-    bg: '#ffffff',
-    surface: '#f4f4f5',
-    surfaceAlt: '#fafafa',
-    border: '#e4e4e7',
-    text: '#18181b',
-    textSub: '#52525b',
-    textMuted: '#a1a1aa',
-    placeholder: '#a1a1aa',
-    inputBg: '#ffffff',
-    onlineBg: '#dcfce7',
-    onlineText: '#166534',
-    offlineBg: '#fee2e2',
-    offlineText: '#991b1b',
-  },
-  dark: {
-    bg: '#09090b',
-    surface: '#18181b',
-    surfaceAlt: '#1c1c1e',
-    border: '#3f3f46',
-    text: '#fafafa',
-    textSub: '#a1a1aa',
-    textMuted: '#71717a',
-    placeholder: '#71717a',
-    inputBg: '#18181b',
-    onlineBg: '#14532d',
-    onlineText: '#86efac',
-    offlineBg: '#450a0a',
-    offlineText: '#fca5a5',
-  },
+export const riskColors: Record<string, string> = {
+  low: "#64748b",
+  medium: "#0ea5e9",
+  high: "#f97316",
+  critical: "#ef4444",
 };
 
-export type ThemeColors = typeof palette.light;
+export const statusColors: Record<string, string> = {
+  open: "#0ea5e9",
+  acknowledged: "#eab308",
+  resolved: "#22c55e",
+  dismissed: "#64748b",
+  record_only: "#a855f7",
+};
 
-export function useTheme(): ThemeColors {
-  const scheme = useColorScheme();
-  return scheme === 'dark' ? palette.dark : palette.light;
-}
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
+  xxl: 32,
+} as const;
+
+export const radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  full: 999,
+} as const;
+
+export const typography = {
+  xs: 12,
+  sm: 14,
+  base: 16,
+  lg: 18,
+  xl: 22,
+  xxl: 28,
+} as const;
+
+export const theme = { colors, riskColors, statusColors, spacing, radius, typography };
+
+export type Theme = typeof theme;

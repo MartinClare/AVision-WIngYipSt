@@ -1,50 +1,44 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Locale, translate } from '@/lib/i18n';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { Locale } from "@/lib/i18n";
+import { translate } from "@/lib/i18n";
 
-const LOCALE_KEY = 'cmp_locale';
+const STORAGE_KEY = "cmp_locale";
 
 type LocaleContextValue = {
   locale: Locale;
-  ready: boolean;
-  setLocale: (locale: Locale) => Promise<void>;
+  setLocale: (locale: Locale) => void;
   t: (key: string, vars?: Record<string, string | number>) => string;
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>('en');
-  const [ready, setReady] = useState(false);
+  const [locale, setLocaleState] = useState<Locale>("en");
 
   useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(LOCALE_KEY);
-        if (stored === 'en' || stored === 'zh-Hant') {
-          setLocaleState(stored);
-        }
-      } finally {
-        setReady(true);
-      }
-    })();
+    void AsyncStorage.getItem(STORAGE_KEY).then((value) => {
+      if (value === "zh-Hant" || value === "en") setLocaleState(value);
+    });
   }, []);
 
-  async function setLocale(locale: Locale) {
-    setLocaleState(locale);
-    await AsyncStorage.setItem(LOCALE_KEY, locale);
-  }
+  const setLocale = useCallback((next: Locale) => {
+    setLocaleState(next);
+    void AsyncStorage.setItem(STORAGE_KEY, next);
+  }, []);
 
-  const value = useMemo(
-    () => ({ locale, ready, setLocale, t: (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars) }),
-    [locale, ready]
+  const t = useCallback(
+    (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars),
+    [locale]
   );
+
+  const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
 }
 
 export function useLocale() {
   const ctx = useContext(LocaleContext);
-  if (!ctx) throw new Error('useLocale must be used within LocaleProvider');
+  if (!ctx) throw new Error("useLocale must be used within LocaleProvider");
   return ctx;
 }

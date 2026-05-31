@@ -1,86 +1,132 @@
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
-import { apiFetch } from '@/lib/api';
-import { useTheme } from '@/lib/theme';
-import { useLocale } from '@/context/LocaleContext';
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { Screen } from "@/components/ui/Screen";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import { Stat } from "@/components/ui/Stat";
+import { Badge } from "@/components/ui/Badge";
+import { useLocale } from "@/context/LocaleContext";
+import { useDashboard } from "@/lib/queries";
+import { incidentTypeLabel, formatDateTime } from "@/lib/i18n";
+import { colors, spacing, typography } from "@/lib/theme";
 
-type Summary = {
-  openIncidents: number;
-  highCriticalIncidents: number;
-  edgeDevicesOnline: number;
-  edgeDevicesTotal: number;
-};
-
-export default function SummaryScreen() {
-  const c = useTheme();
-  const { t } = useLocale();
-  const [data, setData] = useState<Summary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    const res = await apiFetch<Summary>('/api/mobile/summary');
-    if (res.ok) setData(res.data);
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      void load();
-    }, [load])
-  );
-
-  function onRefresh() {
-    setRefreshing(true);
-    void load();
-  }
-
-  if (loading && !data) {
-    return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+export default function DashboardScreen() {
+  const { t, locale } = useLocale();
+  const router = useRouter();
+  const { data, isLoading, isError, error, refetch, isRefetching } = useDashboard();
 
   return (
-    <ScrollView
-      style={{ backgroundColor: c.bg }}
-      contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    <Screen
+      title={t("dashboard.title")}
+      refreshing={isRefetching}
+      onRefresh={() => void refetch()}
     >
-      <Text style={[styles.h1, { color: c.text }]}>{t('summary.title')}</Text>
-      <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <Text style={[styles.label, { color: c.textSub }]}>{t('summary.openIncidents')}</Text>
-        <Text style={[styles.value, { color: c.text }]}>{data?.openIncidents ?? '—'}</Text>
-      </View>
-      <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <Text style={[styles.label, { color: c.textSub }]}>{t('summary.openHighCritical')}</Text>
-        <Text style={[styles.value, { color: c.text }]}>{data?.highCriticalIncidents ?? '—'}</Text>
-      </View>
-      <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <Text style={[styles.label, { color: c.textSub }]}>{t('summary.edgeDevicesOnline')}</Text>
-        <Text style={[styles.value, { color: c.text }]}>
-          {data != null ? `${data.edgeDevicesOnline} / ${data.edgeDevicesTotal}` : '—'}
-        </Text>
-      </View>
-    </ScrollView>
+      {isError ? <ErrorState message={error?.message ?? "Error"} onRetry={() => void refetch()} /> : null}
+      {isLoading && !data ? <Text style={styles.loading}>{t("common.loading")}</Text> : null}
+      {data ? (
+        <>
+          <View style={styles.statsRow}>
+            <Stat label={t("dashboard.openIncidents")} value={data.kpis.openIncidents} />
+            <Stat label={t("dashboard.highCritical")} value={data.kpis.highCriticalRisk} />
+          </View>
+          <View style={styles.statsRow}>
+            <Stat
+              label={t("dashboard.edgeOnline")}
+              value={`${data.kpis.edgeOnline}/${data.kpis.edgeTotal}`}
+            />
+            <Stat
+              label={t("dashboard.avgResponse")}
+              value={Math.round(data.kpis.avgResponseTime)}
+            />
+          </View>
+
+          <SectionHeader title={t("dashboard.edgeStatus")} />
+          {data.edgeDevices.length === 0 ? (
+            <EmptyState message={t("edge.empty")} />
+          ) : (
+            data.edgeDevices.slice(0, 8).map((device) => (
+              <Pressable key={device.id} onPress={() => router.push(`/edge/${device.id}`)}>
+                <Card style={styles.listCard}>
+                  <View style={styles.row}>
+                    <Text style={styles.name}>{device.name}</Text>
+                    <Badge
+                      value={device.isOnline ? t("edge.online") : t("edge.offline")}
+                      kind="default"
+                    />
+                  </View>
+                  {device.latestRiskLevel ? (
+                    <Badge value={device.latestRiskLevel} kind="risk" />
+                  ) : null}
+                </Card>
+              </Pressable>
+            ))
+          )}
+
+          <SectionHeader title={t("dashboard.riskByCategory")} />
+          {data.riskCategories.map((cat) => (
+            <Card key={cat.categoryKey} style={styles.listCard}>
+              <View style={styles.row}>
+                <Text style={styles.name}>
+                  {cat.icon} {t(`dashboard.categories.${cat.categoryKey}`)}
+                </Text>
+                <Text style={styles.meta}>{t("dashboard.openCount", { count: cat.openCount })}</Text>
+              </View>
+              {cat.latestRisk ? <Badge value={cat.latestRisk} kind="risk" /> : null}
+            </Card>
+          ))}
+
+          <SectionHeader title={t("dashboard.recentAlerts")} />
+          {data.recentAlerts.length === 0 ? (
+            <EmptyState message={t("dashboard.noAlerts")} />
+          ) : (
+            data.recentAlerts.map((alert) => (
+              <Pressable key={alert.id} onPress={() => router.push(`/incident/${alert.id}`)}>
+                <Card style={styles.listCard}>
+                  <View style={styles.row}>
+                    <Text style={styles.name}>{incidentTypeLabel(locale, alert.type)}</Text>
+                    <Badge value={alert.riskLevel} kind="risk" />
+                  </View>
+                  <Text style={styles.meta}>
+                    {alert.cameraName} · {formatDateTime(alert.detectedAt)}
+                  </Text>
+                </Card>
+              </Pressable>
+            ))
+          )}
+        </>
+      ) : null}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  container: { padding: 16, paddingBottom: 32 },
-  h1: { fontSize: 22, fontWeight: '700', marginBottom: 16 },
-  card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+  statsRow: {
+    flexDirection: "row",
+    gap: spacing.md,
   },
-  label: { fontSize: 14, marginBottom: 4 },
-  value: { fontSize: 28, fontWeight: '600' },
+  listCard: {
+    gap: spacing.sm,
+  },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  name: {
+    color: colors.foreground,
+    fontSize: typography.base,
+    fontWeight: "600",
+    flex: 1,
+  },
+  meta: {
+    color: colors.muted,
+    fontSize: typography.sm,
+  },
+  loading: {
+    color: colors.muted,
+    textAlign: "center",
+  },
 });

@@ -1,84 +1,52 @@
-import * as SecureStore from "expo-secure-store";
-import { CMP_API_URL } from "@/constants/Config";
+import { CMP_API_URL, localeHeader } from "@/constants/Config";
+import { getStoredToken, setStoredToken } from "@/lib/storage";
 
-const TOKEN_KEY = "cmp_access_token";
-const AUTOLOGIN_EMAIL_KEY = "cmp_autologin_email";
-const AUTOLOGIN_PASSWORD_KEY = "cmp_autologin_password";
-
-export async function getStoredToken(): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export async function setStoredToken(token: string): Promise<void> {
-  await SecureStore.setItemAsync(TOKEN_KEY, token);
-}
-
-export async function clearStoredToken(): Promise<void> {
-  await SecureStore.deleteItemAsync(TOKEN_KEY);
-}
-
-export async function getStoredCredentials(): Promise<{ email: string; password: string } | null> {
-  try {
-    const [email, password] = await Promise.all([
-      SecureStore.getItemAsync(AUTOLOGIN_EMAIL_KEY),
-      SecureStore.getItemAsync(AUTOLOGIN_PASSWORD_KEY),
-    ]);
-    if (!email || !password) return null;
-    return { email, password };
-  } catch {
-    return null;
-  }
-}
-
-export async function setStoredCredentials(email: string, password: string): Promise<void> {
-  await Promise.all([
-    SecureStore.setItemAsync(AUTOLOGIN_EMAIL_KEY, email),
-    SecureStore.setItemAsync(AUTOLOGIN_PASSWORD_KEY, password),
-  ]);
-}
-
-export async function clearStoredCredentials(): Promise<void> {
-  await Promise.all([
-    SecureStore.deleteItemAsync(AUTOLOGIN_EMAIL_KEY),
-    SecureStore.deleteItemAsync(AUTOLOGIN_PASSWORD_KEY),
-  ]);
-}
+export { getStoredToken, setStoredToken };
 
 export type ApiError = { message: string; status: number };
 
+export type ApiResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: ApiError };
+
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit & { token?: string | null } = {}
-): Promise<{ ok: true; data: T } | { ok: false; error: ApiError }> {
-  const token = options.token !== undefined ? options.token : await getStoredToken();
-  const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type") && options.body && typeof options.body === "string") {
+  options: RequestInit & { token?: string | null; locale?: string } = {}
+): Promise<ApiResult<T>> {
+  const { token: tokenOverride, locale, ...init } = options;
+  const token = tokenOverride === undefined ? await getStoredToken() : tokenOverride;
+  const headers = new Headers(init.headers);
+  if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (locale) headers.set("x-cmp-locale", localeHeader(locale));
 
-  const res = await fetch(`${CMP_API_URL}${path}`, { ...options, headers });
-  const text = await res.text();
-  let json: unknown = null;
-  if (text) {
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = { message: text };
+  const url = path.startsWith("http") ? path : `${CMP_API_URL}${path}`;
+
+  try {
+    const res = await fetch(url, { ...init, headers });
+    const text = await res.text();
+    let payload: unknown = null;
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = text;
+      }
     }
+    if (!res.ok) {
+      const message =
+        typeof payload === "object" && payload && "message" in payload
+          ? String((payload as { message: unknown }).message)
+          : `Request failed (${res.status})`;
+      return { ok: false, error: { message, status: res.status } };
+    }
+    return { ok: true, data: payload as T };
+  } catch (err) {
+    return {
+      ok: false,
+      error: { message: (err as Error).message || "Network error", status: 0 },
+    };
   }
-
-  if (!res.ok) {
-    const msg =
-      typeof json === "object" && json && "message" in json
-        ? String((json as { message: unknown }).message)
-        : res.statusText;
-    return { ok: false, error: { message: msg, status: res.status } };
-  }
-
-  return { ok: true, data: json as T };
 }

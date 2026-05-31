@@ -1,180 +1,158 @@
-import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { apiFetch } from '@/lib/api';
-import { useTheme } from '@/lib/theme';
-import { resolveCmpAssetUrl } from '@/constants/Config';
-import { useAuth } from '@/context/AuthContext';
-import { useLocale } from '@/context/LocaleContext';
-import { AuthImage } from '@/components/AuthImage';
+import { useMemo, useState } from "react";
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { BoundingBoxCanvas } from "@/components/BoundingBoxCanvas";
+import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { Screen } from "@/components/ui/Screen";
+import { useAuth } from "@/context/AuthContext";
+import { useLocale } from "@/context/LocaleContext";
+import { incidentTypeLabel, formatDateTime } from "@/lib/i18n";
+import { useIncidents } from "@/lib/queries";
+import { colors, radius, spacing, typography } from "@/lib/theme";
 
-type IncidentRow = {
-  id: string;
-  type: string;
-  riskLevel: string;
-  status: string;
-  recordOnly: boolean;
-  reasoning: string | null;
-  notes: string | null;
-  detectedAt: string;
-  acknowledgedAt: string | null;
-  resolvedAt: string | null;
-  dismissedAt: string | null;
-  camera: { name: string };
-  project: { name: string };
-  zone: { name: string };
-  assignee: { name: string } | null;
-  edgeReport: {
-    id: string;
-    overallRiskLevel: string;
-    overallDescription: string | null;
-    receivedAt: string;
-    imageUrl: string;
-  } | null;
-};
-
-function riskStyle(level: string, c: ReturnType<typeof useTheme>) {
-  switch (level) {
-    case 'critical':
-      return { backgroundColor: c.offlineBg, color: c.offlineText };
-    case 'high':
-      return { backgroundColor: '#7c2d12', color: '#fdba74' };
-    case 'medium':
-      return { backgroundColor: '#78350f', color: '#fcd34d' };
-    default:
-      return { backgroundColor: c.surface, color: c.textSub };
-  }
-}
+const STATUS_FILTERS = ["", "open", "acknowledged", "resolved", "dismissed", "record_only"] as const;
+const RISK_FILTERS = ["", "low", "medium", "high", "critical"] as const;
 
 export default function IncidentsScreen() {
-  const c = useTheme();
+  const { t, locale } = useLocale();
   const { token } = useAuth();
-  const { t } = useLocale();
   const router = useRouter();
-  const [items, setItems] = useState<IncidentRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [status, setStatus] = useState("");
+  const [risk, setRisk] = useState("");
 
-  const load = useCallback(async () => {
-    const res = await apiFetch<{ incidents: IncidentRow[] }>('/api/mobile/incidents?limit=40');
-    if (res.ok) setItems(res.data.incidents);
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      void load();
-    }, [load])
+  const filters = useMemo(
+    () => ({
+      status: status || undefined,
+      riskLevel: risk || undefined,
+    }),
+    [status, risk]
   );
 
-  if (loading && items.length === 0) {
-    return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  const { data, isLoading, isError, error, refetch, isRefetching } = useIncidents(filters);
 
   return (
-    <FlatList
-      style={{ backgroundColor: c.bg }}
-      data={items}
-      keyExtractor={(i) => i.id}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void load();
-          }}
-        />
-      }
-      contentContainerStyle={styles.list}
-      ListEmptyComponent={<Text style={[styles.empty, { color: c.textMuted }]}>{t('incidents.empty')}</Text>}
-      renderItem={({ item }) => (
-        <Pressable
-          style={[styles.row, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
-          onPress={() => router.push(`/incident/${item.id}`)}
-        >
-          <View style={styles.contentRow}>
-            {item.edgeReport?.id ? (
-              <AuthImage
-                uri={resolveCmpAssetUrl(item.edgeReport.imageUrl) ?? item.edgeReport.imageUrl}
-                token={token}
-                style={[styles.thumb, { backgroundColor: c.surface }]}
-                resizeMode="cover"
-              />
-            ) : null}
-            <View style={styles.mainCol}>
-              <View style={styles.rowTop}>
-                <Text style={[styles.type, { color: c.text }]}>{item.type.replace(/_/g, ' ')}</Text>
-                <View style={styles.badges}>
-                  <Text style={[styles.badge, riskStyle(item.riskLevel, c)]}>{t(`common.risk.${item.riskLevel}`)}</Text>
-                  <Text style={[styles.badge, { backgroundColor: c.surface, color: c.textSub }]}>
-                    {t(`common.status.${item.status}`)}
-                  </Text>
-                  {item.recordOnly ? (
-                    <Text style={[styles.badge, { backgroundColor: c.surface, color: c.textSub }]}>{t('incidents.record')}</Text>
-                  ) : null}
-                </View>
+    <Screen title={t("incidents.title")} refreshing={isRefetching} onRefresh={() => void refetch()}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters}>
+        {STATUS_FILTERS.map((value) => (
+          <Pressable
+            key={`s-${value || "all"}`}
+            style={[styles.chip, status === value && styles.chipActive]}
+            onPress={() => setStatus(value)}
+          >
+            <Text style={[styles.chipText, status === value && styles.chipTextActive]}>
+              {value ? t(`common.status.${value}`) : t("incidents.all")}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters}>
+        {RISK_FILTERS.map((value) => (
+          <Pressable
+            key={`r-${value || "all"}`}
+            style={[styles.chip, risk === value && styles.chipActive]}
+            onPress={() => setRisk(value)}
+          >
+            <Text style={[styles.chipText, risk === value && styles.chipTextActive]}>
+              {value ? t(`common.risk.${value}`) : t("incidents.all")}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      {isError ? <ErrorState message={error?.message ?? "Error"} onRetry={() => void refetch()} /> : null}
+      {isLoading && !data ? <Text style={styles.loading}>{t("common.loading")}</Text> : null}
+      {!isLoading && data?.length === 0 ? <EmptyState message={t("incidents.empty")} /> : null}
+
+      <FlatList
+        data={data ?? []}
+        keyExtractor={(item) => item.id}
+        scrollEnabled={false}
+        contentContainerStyle={{ gap: spacing.md }}
+        renderItem={({ item, index }) => (
+          <Pressable onPress={() => router.push(`/incident/${item.id}`)}>
+            <View style={styles.card}>
+              <View style={styles.row}>
+                <Text style={styles.title}>{incidentTypeLabel(locale, item.type)}</Text>
+                <Badge value={item.riskLevel} kind="risk" />
               </View>
-              <Text style={[styles.meta, { color: c.textSub }]}>
-                {item.project.name} · {item.zone.name} · {item.camera.name}
+              <View style={styles.row}>
+                <Badge value={item.status} kind="status" />
+                {item.recordOnly ? <Badge value={t("incidents.record")} kind="default" /> : null}
+              </View>
+              <Text style={styles.meta}>
+                {item.camera.name} · {item.project.name}
               </Text>
-              <Text style={[styles.meta, { color: c.textSub }]}>{t('incidents.assigned', { value: item.assignee?.name ?? t('incidents.unassigned') })}</Text>
-              {item.reasoning ? (
-                <Text numberOfLines={2} style={[styles.body, { color: c.textSub }]}>
-                  {item.reasoning}
-                </Text>
+              <Text style={styles.meta}>{formatDateTime(item.detectedAt)}</Text>
+              {item.edgeReport?.imageUrl && index < 8 ? (
+                <BoundingBoxCanvas
+                  imageUrl={item.edgeReport.imageUrl}
+                  token={token}
+                  detections={item.edgeReport.detections ?? []}
+                  maxHeight={160}
+                />
               ) : null}
-              {item.notes ? (
-                <Text numberOfLines={2} style={[styles.note, { color: c.textMuted }]}>
-                  {t('incidents.notes', { value: item.notes })}
-                </Text>
-              ) : null}
-              {item.edgeReport?.overallDescription ? (
-                <Text numberOfLines={2} style={[styles.note, { color: c.textMuted }]}>
-                  {t('incidents.edge', { value: item.edgeReport.overallDescription })}
-                </Text>
-              ) : null}
-              <Text style={[styles.date, { color: c.textMuted }]}>{new Date(item.detectedAt).toLocaleString()}</Text>
             </View>
-          </View>
-        </Pressable>
-      )}
-    />
+          </Pressable>
+        )}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  list: { padding: 12 },
-  empty: { textAlign: 'center', marginTop: 48 },
-  row: {
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
+  filters: {
+    marginBottom: spacing.sm,
+    maxHeight: 44,
   },
-  contentRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  mainCol: { flex: 1 },
-  thumb: { width: 84, height: 84, borderRadius: 10 },
-  rowTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', maxWidth: '45%' },
-  badge: { fontSize: 11, fontWeight: '600', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
-  type: { fontSize: 16, fontWeight: '600', textTransform: 'capitalize' },
-  meta: { fontSize: 13, marginTop: 4 },
-  body: { fontSize: 13, marginTop: 6, lineHeight: 18 },
-  note: { fontSize: 12, marginTop: 6, lineHeight: 17 },
-  date: { fontSize: 12, marginTop: 6 },
+  chip: {
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
+    backgroundColor: colors.card,
+  },
+  chipActive: {
+    borderColor: colors.accent,
+    backgroundColor: `${colors.accent}22`,
+  },
+  chipText: {
+    color: colors.muted,
+    fontSize: typography.sm,
+  },
+  chipTextActive: {
+    color: colors.accent,
+    fontWeight: "600",
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  row: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  title: {
+    color: colors.foreground,
+    fontSize: typography.base,
+    fontWeight: "700",
+    flex: 1,
+  },
+  meta: {
+    color: colors.muted,
+    fontSize: typography.sm,
+  },
+  loading: {
+    color: colors.muted,
+    textAlign: "center",
+  },
 });

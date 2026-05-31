@@ -1,67 +1,52 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { AuthProvider } from "@/context/AuthContext";
+import { LocaleProvider, useLocale } from "@/context/LocaleContext";
+import { colors } from "@/lib/theme";
 
-import { useColorScheme } from '@/components/useColorScheme';
-import { AuthProvider } from '@/context/AuthContext';
-import { LocaleProvider, useLocale } from '@/context/LocaleContext';
-
-export { ErrorBoundary } from 'expo-router';
-
-export const unstable_settings = {
-  initialRouteName: 'index',
-};
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-export default function RootLayout() {
-  const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-    ...FontAwesome.font,
-  });
-
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
-  useEffect(() => {
-    if (error) throw error;
-  }, [error]);
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
-
+function RootLayoutNav() {
+  const { t } = useLocale();
   return (
-    <LocaleProvider>
-      <AuthProvider>
-        <RootLayoutNav />
-      </AuthProvider>
-    </LocaleProvider>
+    <>
+      <StatusBar style="light" />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.foreground,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="login" options={{ title: t("login.title") }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="incident/[id]" options={{ title: t("incidents.incidentTitle") }} />
+        <Stack.Screen name="incident/edge-report/[id]" options={{ title: t("edgeReport.title") }} />
+        <Stack.Screen name="edge/[id]" options={{ title: t("edge.detail") }} />
+      </Stack>
+    </>
   );
 }
 
-function RootLayoutNav() {
-  const colorScheme = useColorScheme();
-  const { t } = useLocale();
+export default function RootLayout() {
+  const queryClient = useMemo(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { retry: 1, staleTime: 5_000 },
+        },
+      }),
+    []
+  );
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="login" options={{ title: t('login.title') }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="incident/[id]" options={{ title: t('incidents.incidentTitle') }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-      </Stack>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <LocaleProvider>
+        <AuthProvider>
+          <RootLayoutNav />
+        </AuthProvider>
+      </LocaleProvider>
+    </QueryClientProvider>
   );
 }

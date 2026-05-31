@@ -1,122 +1,82 @@
-import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useFocusEffect } from 'expo-router';
-import { apiFetch } from '@/lib/api';
-import { useTheme } from '@/lib/theme';
-import { useLocale } from '@/context/LocaleContext';
-
-type Device = {
-  id: string;
-  name: string;
-  isOnline: boolean;
-  status: string;
-  lastReportAt: string | null;
-  latestRiskLevel: string | null;
-  project: { name: string } | null;
-};
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { Screen } from "@/components/ui/Screen";
+import { useLocale } from "@/context/LocaleContext";
+import { formatDateTime } from "@/lib/i18n";
+import { useEdgeDevices } from "@/lib/queries";
+import { colors, radius, spacing, typography } from "@/lib/theme";
 
 export default function EdgeDevicesScreen() {
-  const c = useTheme();
   const { t } = useLocale();
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    const res = await apiFetch<{ devices: Device[] }>('/api/mobile/edge-devices');
-    if (res.ok) setDevices(res.data.devices);
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      void load();
-    }, [load])
-  );
-
-  if (loading && devices.length === 0) {
-    return (
-      <View style={[styles.centered, { backgroundColor: c.bg }]}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  const router = useRouter();
+  const { data, isLoading, isError, error, refetch, isRefetching } = useEdgeDevices();
 
   return (
-    <FlatList
-      style={{ backgroundColor: c.bg }}
-      data={devices}
-      keyExtractor={(d) => d.id}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void load();
-          }}
-        />
-      }
-      contentContainerStyle={styles.list}
-      ListEmptyComponent={<Text style={[styles.empty, { color: c.textMuted }]}>{t('edge.empty')}</Text>}
-      renderItem={({ item }) => (
-        <View style={[styles.row, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-          <View style={styles.rowTop}>
-            <Text style={[styles.name, { color: c.text }]}>{item.name}</Text>
-            <Text
-              style={[
-                styles.badge,
-                item.isOnline
-                  ? { backgroundColor: c.onlineBg, color: c.onlineText }
-                  : { backgroundColor: c.offlineBg, color: c.offlineText },
-              ]}
-            >
-              {item.isOnline ? t('edge.online') : t('edge.offline')}
-            </Text>
-          </View>
-          <Text style={[styles.meta, { color: c.textSub }]}>{item.project?.name ?? '—'}</Text>
-          {item.latestRiskLevel ? (
-            <Text style={[styles.meta, { color: c.textSub }]}>{t('edge.latestRisk', { value: item.latestRiskLevel })}</Text>
-          ) : null}
-          {item.lastReportAt ? (
-            <Text style={[styles.date, { color: c.textMuted }]}>
-              {t('edge.lastReport', { value: new Date(item.lastReportAt).toLocaleString() })}
-            </Text>
-          ) : null}
-        </View>
-      )}
-    />
+    <Screen title={t("edge.title")} refreshing={isRefetching} onRefresh={() => void refetch()}>
+      {isError ? <ErrorState message={error?.message ?? "Error"} onRetry={() => void refetch()} /> : null}
+      {isLoading && !data ? <Text style={styles.loading}>{t("common.loading")}</Text> : null}
+      {!isLoading && data?.length === 0 ? <EmptyState message={t("edge.empty")} /> : null}
+
+      <FlatList
+        data={data ?? []}
+        keyExtractor={(item) => item.id}
+        scrollEnabled={false}
+        contentContainerStyle={{ gap: spacing.md }}
+        renderItem={({ item }) => (
+          <Pressable onPress={() => router.push(`/edge/${item.id}`)}>
+            <View style={styles.card}>
+              <View style={styles.row}>
+                <Text style={styles.name}>{item.name}</Text>
+                <Badge
+                  value={item.isOnline ? t("edge.online") : t("edge.offline")}
+                  kind="default"
+                />
+              </View>
+              <Text style={styles.meta}>{item.project.name}</Text>
+              {item.latestRiskLevel ? (
+                <Text style={styles.meta}>{t("edge.latestRisk", { value: item.latestRiskLevel })}</Text>
+              ) : null}
+              <Text style={styles.meta}>
+                {t("edge.lastReport", { value: formatDateTime(item.lastReportAt) })}
+              </Text>
+            </View>
+          </Pressable>
+        )}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  list: { padding: 12 },
-  empty: { textAlign: 'center', marginTop: 48 },
-  row: {
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
     borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
-  rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  name: { fontSize: 16, fontWeight: '600', flex: 1 },
-  badge: {
-    fontSize: 12,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    overflow: 'hidden',
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: spacing.sm,
   },
-  meta: { fontSize: 13, marginTop: 4 },
-  date: { fontSize: 12, marginTop: 6 },
+  name: {
+    color: colors.foreground,
+    fontSize: typography.base,
+    fontWeight: "700",
+    flex: 1,
+  },
+  meta: {
+    color: colors.muted,
+    fontSize: typography.sm,
+  },
+  loading: {
+    color: colors.muted,
+    textAlign: "center",
+  },
 });

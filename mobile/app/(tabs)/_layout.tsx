@@ -1,19 +1,15 @@
-import React from 'react';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { Tabs } from 'expo-router';
+import React from "react";
+import { Tabs } from "expo-router";
+import { Text } from "react-native";
+import { PushRegistration } from "@/components/PushRegistration";
+import { useLocale } from "@/context/LocaleContext";
+import { colors } from "@/lib/theme";
 
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-import { PushRegistration } from '@/components/PushRegistration';
-import { useLocale } from '@/context/LocaleContext';
-
-function TabBarIcon(props: { name: React.ComponentProps<typeof FontAwesome>['name']; color: string }) {
-  return <FontAwesome size={24} style={{ marginBottom: -2 }} {...props} />;
+function TabIcon({ symbol, color }: { symbol: string; color: string }) {
+  return <Text style={{ color, fontSize: 18, fontWeight: "700" }}>{symbol}</Text>;
 }
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
   const { t } = useLocale();
 
   return (
@@ -21,36 +17,49 @@ export default function TabLayout() {
       <PushRegistration />
       <Tabs
         screenOptions={{
-          tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-          headerShown: useClientOnlyValue(false, true),
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.foreground,
+          tabBarStyle: {
+            backgroundColor: colors.card,
+            borderTopColor: colors.border,
+          },
+          tabBarActiveTintColor: colors.accent,
+          tabBarInactiveTintColor: colors.muted,
         }}
       >
         <Tabs.Screen
           name="index"
           options={{
-            title: t('tabs.summary'),
-            tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+            title: t("tabs.dashboard"),
+            tabBarIcon: ({ color }) => <TabIcon symbol="D" color={color} />,
           }}
         />
         <Tabs.Screen
           name="incidents"
           options={{
-            title: t('tabs.incidents'),
-            tabBarIcon: ({ color }) => <TabBarIcon name="warning" color={color} />,
+            title: t("tabs.incidents"),
+            tabBarIcon: ({ color }) => <TabIcon symbol="!" color={color} />,
           }}
         />
         <Tabs.Screen
           name="edge"
           options={{
-            title: t('tabs.devices'),
-            tabBarIcon: ({ color }) => <TabBarIcon name="video-camera" color={color} />,
+            title: t("tabs.edge"),
+            tabBarIcon: ({ color }) => <TabIcon symbol="E" color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="analytics"
+          options={{
+            title: t("tabs.analytics"),
+            tabBarIcon: ({ color }) => <TabIcon symbol="A" color={color} />,
           }}
         />
         <Tabs.Screen
           name="settings"
           options={{
-            title: t('tabs.settings'),
-            tabBarIcon: ({ color }) => <TabBarIcon name="cog" color={color} />,
+            title: t("tabs.settings"),
+            tabBarIcon: ({ color }) => <TabIcon symbol="S" color={color} />,
           }}
         />
       </Tabs>
