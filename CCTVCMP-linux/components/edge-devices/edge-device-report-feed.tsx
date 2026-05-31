@@ -20,6 +20,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatHKT } from "@/lib/utils";
 import { BoundingBoxCanvas } from "@/components/edge-devices/bounding-box-canvas";
 import type { Detection } from "@/components/edge-devices/bounding-box-canvas";
+import { resolveEdgeReportImageUrl } from "@/lib/edge-report-images";
 
 /** Extract validated detections from rawJson (same logic as edge-report detail page). */
 function extractDetections(rawJson: unknown): Detection[] {
@@ -140,6 +141,7 @@ function parseClassifications(raw: unknown): Classification[] {
 
 function ReportCard({ report }: { report: Report }) {
   const [expanded, setExpanded] = useState(false);
+  const imageUrl = resolveEdgeReportImageUrl(report.id, report.eventImagePath);
   const construction = parseSafety(report.constructionSafety);
   const fire = parseSafety(report.fireSafety);
   const property = parseSafety(report.propertySecurity);
@@ -155,19 +157,19 @@ function ReportCard({ report }: { report: Report }) {
         {/* ── Top bar ─────────────────────────────────────────── */}
         <div className="flex items-start gap-3 p-4">
           {/* Image with bounding-box overlay */}
-          {report.eventImagePath && (() => {
+          {imageUrl && (() => {
             const dets = extractDetections(report.rawJson);
             return (
               <div className="shrink-0 w-36">
                 <BoundingBoxCanvas
-                  imageUrl={report.eventImagePath}
+                  imageUrl={imageUrl}
                   detections={dets}
                   className="rounded-md"
                 />
               </div>
             );
           })()}
-          {!report.eventImagePath && report.eventImageIncluded && (
+          {!imageUrl && report.eventImageIncluded && (
             <div className="h-24 w-32 shrink-0 rounded-md border bg-muted/30 flex items-center justify-center text-xs text-muted-foreground">
               Image pending
             </div>

@@ -4,6 +4,7 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import type { IncidentStatus, IncidentRiskLevel } from "@prisma/client";
 import type { Detection } from "@/components/edge-devices/bounding-box-canvas";
 import { getTranslations } from "next-intl/server";
+import { resolveEdgeReportImageUrl } from "@/lib/edge-report-images";
 
 const VALID_STATUSES: IncidentStatus[] = ["open", "acknowledged", "resolved", "dismissed", "record_only"];
 const VALID_RISKS: IncidentRiskLevel[] = ["low", "medium", "high", "critical"];
@@ -70,10 +71,11 @@ export default async function IncidentsPage({
 
   const incidentsWithEvidence = incidents.map((incident) => {
     const r = incident.edgeReport;
-    const evidence = r?.eventImagePath
+    const imagePath = r ? resolveEdgeReportImageUrl(r.id, r.eventImagePath) : null;
+    const evidence = r && imagePath
       ? {
           reportId: r.id,
-          imagePath: r.eventImagePath,
+          imagePath,
           riskLevel: r.overallRiskLevel,
           receivedAt: r.receivedAt,
           detections: extractDetections(r.rawJson),

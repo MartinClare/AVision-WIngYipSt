@@ -16,6 +16,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "bootstrap-admin": "node --env-file=.env ./node_modules/tsx/dist/cli.mjs scripts/bootstrap-admin.ts",
     "seed-cameras": "node --env-file=.env ./node_modules/tsx/dist/cli.mjs scripts/seed-cameras.ts",
+    "backfill:image-paths": "node --env-file=.env ./node_modules/tsx/dist/cli.mjs scripts/backfill-edge-report-image-paths.ts",
     "db:push": "prisma db push",
     "postinstall": "prisma generate"
   },

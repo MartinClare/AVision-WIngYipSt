@@ -9,6 +9,7 @@ import { BoundingBoxCanvas } from "@/components/edge-devices/bounding-box-canvas
 import type { Detection } from "@/components/edge-devices/bounding-box-canvas";
 import { getTranslations, getLocale } from "next-intl/server";
 import type { TranslationsJson } from "@/lib/translator";
+import { resolveEdgeReportImageUrl } from "@/lib/edge-report-images";
 
 type Props = { params: { id: string } };
 
@@ -79,6 +80,7 @@ export default async function EdgeReportDetailPage({ params }: Props) {
     : undefined;
 
   const detections = extractDetections(report.rawJson);
+  const imageUrl = resolveEdgeReportImageUrl(report.id, report.eventImagePath);
 
   return (
     <div className="space-y-6">
@@ -155,8 +157,8 @@ export default async function EdgeReportDetailPage({ params }: Props) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {report.eventImagePath ? (
-            <BoundingBoxCanvas imageUrl={report.eventImagePath} detections={detections} maxHeight="70vh" />
+          {imageUrl ? (
+            <BoundingBoxCanvas imageUrl={imageUrl} detections={detections} maxHeight="70vh" />
           ) : (
             <p className="text-sm text-muted-foreground">{t("noImage")}</p>
           )}

@@ -11,6 +11,7 @@ import type { Detection } from "@/components/edge-devices/bounding-box-canvas";
 import { formatHKT } from "@/lib/utils";
 import { getTranslations, getLocale } from "next-intl/server";
 import type { TranslationsJson } from "@/lib/translator";
+import { resolveEdgeReportImageUrl } from "@/lib/edge-report-images";
 
 function extractDetections(rawJson: unknown): Detection[] {
   if (!rawJson || typeof rawJson !== "object") return [];
@@ -78,7 +79,7 @@ function accuracyColor(acc: string) {
 }
 
 export default async function IncidentDetailPage({ params }: { params: { id: string } }) {
-  const [incident, t, locale] = await Promise.all([
+  const [incident, t, tCommon, locale] = await Promise.all([
     prisma.incident.findUnique({
       where: { id: params.id },
       include: {
@@ -116,12 +117,16 @@ export default async function IncidentDetailPage({ params }: { params: { id: str
       },
     }),
     getTranslations("incidents"),
+    getTranslations("common"),
     getLocale(),
   ]);
 
   if (!incident) notFound();
 
   const evidence = incident.edgeReport;
+  const evidenceImageUrl = evidence
+    ? resolveEdgeReportImageUrl(evidence.id, evidence.eventImagePath)
+    : null;
   const translations = (evidence?.translationsJson ?? null) as TranslationsJson | null;
   const isZh = locale === "zh";
 
@@ -197,7 +202,7 @@ export default async function IncidentDetailPage({ params }: { params: { id: str
             {incident.acknowledgedAt && <Row label={t("acknowledgedAt")} value={formatHKT(incident.acknowledgedAt)} />}
             {incident.resolvedAt && <Row label={t("resolvedAt")} value={formatHKT(incident.resolvedAt)} />}
             {incident.dismissedAt && <Row label={t("dismissedAt")} value={formatHKT(incident.dismissedAt)} />}
-            <Row label={t("assignedTo")} value={incident.assignee?.name ?? t("common.unassigned")} />
+            <Row label={t("assignedTo")} value={incident.assignee?.name ?? tCommon("unassigned")} />
           </CardContent>
         </Card>
 
@@ -237,10 +242,10 @@ export default async function IncidentDetailPage({ params }: { params: { id: str
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {evidence?.eventImagePath ? (
+          {evidenceImageUrl ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
               <BoundingBoxCanvas
-                imageUrl={evidence.eventImagePath}
+                imageUrl={evidenceImageUrl}
                 detections={extractDetections(evidence.rawJson)}
                 maxHeight="480px"
               />
