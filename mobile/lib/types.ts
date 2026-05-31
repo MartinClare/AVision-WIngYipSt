@@ -99,6 +99,7 @@ export type EdgeDevice = {
   status: string;
   lastReportAt: string | null;
   latestRiskLevel: string | null;
+  snapshotUrl: string;
   project: { name: string };
 };
 

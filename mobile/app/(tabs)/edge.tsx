@@ -1,9 +1,11 @@
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
+import { AuthImage } from "@/components/AuthImage";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Screen } from "@/components/ui/Screen";
+import { useAuth } from "@/context/AuthContext";
 import { useLocale } from "@/context/LocaleContext";
 import { formatDateTime } from "@/lib/i18n";
 import { useEdgeDevices } from "@/lib/queries";
@@ -11,6 +13,7 @@ import { colors, radius, spacing, typography } from "@/lib/theme";
 
 export default function EdgeDevicesScreen() {
   const { t } = useLocale();
+  const { token } = useAuth();
   const router = useRouter();
   const { data, isLoading, isError, error, refetch, isRefetching } = useEdgeDevices();
 
@@ -28,6 +31,12 @@ export default function EdgeDevicesScreen() {
         renderItem={({ item }) => (
           <Pressable onPress={() => router.push(`/edge/${item.id}`)}>
             <View style={styles.card}>
+              <AuthImage
+                uri={item.snapshotUrl}
+                token={token}
+                style={styles.snapshot}
+                resizeMode="cover"
+              />
               <View style={styles.row}>
                 <Text style={styles.name}>{item.name}</Text>
                 <Badge
@@ -58,6 +67,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
     gap: spacing.sm,
+    overflow: "hidden",
+  },
+  snapshot: {
+    width: "100%",
+    height: 160,
+    borderRadius: radius.sm,
+    marginBottom: spacing.xs,
   },
   row: {
     flexDirection: "row",

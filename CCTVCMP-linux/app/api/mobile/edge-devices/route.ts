@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isSyntheticEdgeCamera, ONLINE_THRESHOLD_MS } from "@/lib/camera-status";
+import { resolveMobilePublicBaseUrl } from "@/lib/runtime-config";
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUserFromRequest(request);
   if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  const publicBaseUrl = await resolveMobilePublicBaseUrl(request.url);
 
   const cameras = await prisma.camera.findMany({
     select: {
@@ -40,6 +42,7 @@ export async function GET(request: NextRequest) {
       status: camera.status,
       lastReportAt: camera.lastReportAt,
       latestRiskLevel: camera.edgeReports[0]?.overallRiskLevel ?? null,
+      snapshotUrl: `${publicBaseUrl}/api/edge-devices/${camera.id}/snapshot`,
       project: camera.project,
     }));
 
