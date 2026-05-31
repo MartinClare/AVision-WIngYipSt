@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { Redirect } from "expo-router";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
@@ -30,6 +30,11 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.card}>
+        <Image
+          source={require("@/assets/images/login-icon.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
         <Text style={styles.title}>{t("login.title")}</Text>
         <Text style={styles.subtitle}>{t("login.subtitle")}</Text>
         <TextInput
@@ -70,6 +75,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.xl,
     gap: spacing.md,
+    alignItems: "stretch",
+  },
+  logo: {
+    width: 96,
+    height: 96,
+    alignSelf: "center",
+    marginBottom: spacing.sm,
+    borderRadius: radius.lg,
   },
   title: {
     color: colors.foreground,

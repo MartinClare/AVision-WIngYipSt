@@ -24,6 +24,15 @@ export default function Root({ children }: PropsWithChildren) {
             margin: 0;
             overscroll-behavior: none;
           }
+          body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background:
+              linear-gradient(rgba(15, 23, 42, 0.1), rgba(15, 23, 42, 0.38)),
+              url("/assets/images/splash-web.jpg") center / cover no-repeat;
+            z-index: -1;
+          }
         `}</style>
       </head>
       <body>{children}</body>
