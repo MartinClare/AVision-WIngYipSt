@@ -25,6 +25,23 @@ npm run build:apk
 
 See [README build section](README.md) in repo for push setup on CMP server.
 
+## Background alerts
+
+Native background alerts use Expo push notifications. They work when the APK is in the background or closed, after three things are done:
+
+1. Build and install the standalone APK (`npm run build:apk` or `npm run build:apk:preview`).
+2. Set `EXPO_ACCESS_TOKEN` on the CMP server and restart CMP:
+
+```bash
+export EXPO_ACCESS_TOKEN=your_expo_access_token
+cd ..
+./deploy/start-cmp.sh
+```
+
+3. Open the APK once, sign in, then go to **Settings → Register this device for push**. Use **Send test notification** to verify delivery.
+
+The current mobile web preview cannot receive alerts while closed. That requires a separate HTTPS PWA Web Push setup.
+
 ## App identity
 
 | Field | Value |

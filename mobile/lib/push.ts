@@ -25,6 +25,17 @@ export async function registerPushTokenWithCmp(): Promise<string | null> {
     return null;
   }
 
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("cmp-alerts", {
+      name: "CMP Alerts",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#ef4444",
+      sound: "default",
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+  }
+
   const { status: existing } = await Notifications.getPermissionsAsync();
   let final = existing;
   if (existing !== "granted") {
